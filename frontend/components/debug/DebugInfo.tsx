@@ -61,22 +61,43 @@ export const DebugInfo = ({ analysis }: DebugInfoProps) => {
       {/* Detected Objects with 3D Box Info */}
       {analysis?.boxes && Object.keys(analysis.boxes).length > 0 && (
         <div className="mt-4">
-          <h4 className="text-xs font-medium text-gray-600 mb-2">Detected Objects:</h4>
-          <div className="space-y-3">
-            {Object.entries(analysis.boxes).map(([label, box]) => (
-              <div key={label} className="border-l-2 pl-3" style={{ borderColor: getObjectColor(label) }}>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getObjectColor(label) }} />
-                  <span className="font-medium">{label}</span>
-                  <span className="text-gray-500">({Math.round(box.confidence * 100)}%)</span>
-                </div>
-                <div className="mt-1 text-xs space-y-1 text-gray-600">
-                  <div>Position: {formatPosition(box.position)}</div>
-                  <div>Dimensions: {formatPosition(box.dimensions)}</div>
-                  <div>Rotation: {formatOrientation(box.rotation)}</div>
-                </div>
-              </div>
-            ))}
+          <h4 className="text-xs font-medium text-gray-600 mb-2">検出オブジェクト:</h4>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="bg-gray-100">
+                  <th className="px-2 py-1 text-left">オブジェクト</th>
+                  <th className="px-2 py-1 text-left">信頼度</th>
+                  <th className="px-2 py-1 text-left">位置 (x, y, z)</th>
+                  <th className="px-2 py-1 text-left">サイズ (w, h, d)</th>
+                  <th className="px-2 py-1 text-left">回転 (x°, y°, z°)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(analysis.boxes).map(([label, box]) => (
+                  <tr 
+                    key={label} 
+                    className="border-t border-gray-200"
+                  >
+                    <td className="px-2 py-1">
+                      <div className="flex items-center gap-2">
+                        <div 
+                          className="w-2 h-2 rounded-full" 
+                          style={{ backgroundColor: getObjectColor(label) }} 
+                        />
+                        <span className="font-medium">{label}</span>
+                      </div>
+                    </td>
+                    <td className="px-2 py-1">
+                      {Math.round(box.confidence * 100)}%
+                    </td>
+                    <td className="px-2 py-1">{formatPosition(box.position)}</td>
+                    <td className="px-2 py-1">{formatPosition(box.dimensions)}</td>
+                    <td className="px-2 py-1">{formatOrientation(box.rotation)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

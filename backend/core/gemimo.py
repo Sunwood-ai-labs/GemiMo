@@ -7,7 +7,7 @@ import json
 import numpy as np
 from fastapi import APIRouter, WebSocket
 
-from .types import SleepState, SleepData, Box3D
+from .types import SleepState, SleepData, Box3D, AlarmParameters
 from .alarm import AlarmController
 from .gemini_api import GeminiAPI
 
@@ -31,7 +31,10 @@ class GemiMo:
                         "orientation": sleep_data.orientation,
                         "timestamp": sleep_data.timestamp,
                         "boxes": sleep_data.boxes,
-                        "alarm": self.alarm_controller.get_alarm_parameters(sleep_data)
+                        "alarm": {
+                            "volume": sleep_data.alarm.volume,
+                            "frequency": sleep_data.alarm.frequency
+                        }
                     }
                 return {"status": "error", "message": "Failed to process frame"}
             except Exception as e:
@@ -49,7 +52,10 @@ class GemiMo:
                     if self.current_state:
                         return {
                             "state": self.current_state.state.value,
-                            "alarm": self.alarm_controller.get_alarm_parameters(self.current_state)
+                            "alarm": {
+                                "volume": self.current_state.alarm.volume,
+                                "frequency": self.current_state.alarm.frequency
+                            }
                         }
                     return {"status": "error", "message": "No analysis available"}
             except json.JSONDecodeError:
@@ -79,7 +85,24 @@ class GemiMo:
             orientation = self._extract_orientation(boxes)
             logger.info(f"Extracted position: {position}, orientation: {orientation}")
 
-            # アラームパラメータの取得
+            # SleepDataの作成用に一時的なオブジェクトを作成
+            temp_data = SleepData(
+                state=state,
+                confidence=confidence,
+                position=position,
+                orientation=orientation,
+                timestamp=time.time(),
+                boxes=boxes,
+                alarm=AlarmParameters(volume=0.0, frequency=400)
+            )
+
+            # アラームパラメータの取得と更新
+            alarm_params = self.alarm_controller.get_alarm_parameters(temp_data)
+            alarm = AlarmParameters(
+                volume=alarm_params["volume"],
+                frequency=alarm_params["frequency"]
+            )
+
             sleep_data = SleepData(
                 state=state,
                 confidence=confidence,
@@ -87,7 +110,7 @@ class GemiMo:
                 orientation=orientation,
                 timestamp=time.time(),
                 boxes=boxes,
-                alarm=self.alarm_controller.get_alarm_parameters(state)
+                alarm=alarm
             )
             logger.info(f"Created sleep data: {sleep_data}")
 
@@ -142,7 +165,7 @@ class GemiMo:
             orientation=(0.0, 0.0, 0.0),
             timestamp=time.time(),
             boxes={},
-            alarm={"volume": 0.0, "frequency": 400}
+            alarm=AlarmParameters(volume=0.0, frequency=400)
         )
 
 router = APIRouter()
