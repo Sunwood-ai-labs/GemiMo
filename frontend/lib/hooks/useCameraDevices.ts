@@ -40,7 +40,7 @@ export const useCameraDevices = () => {
     }
   }
 
-  const initializeCamera = async (videoRef: React.RefObject<HTMLVideoElement>, canvasRef: React.RefObject<HTMLCanvasElement>) => {
+  const initializeCamera = async (videoRef: React.RefObject<HTMLVideoElement>) => {
     try {
       if (videoRef.current?.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream
@@ -62,10 +62,8 @@ export const useCameraDevices = () => {
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         videoRef.current.onloadedmetadata = () => {
-          if (canvasRef.current && videoRef.current) {
+          if (videoRef.current) {
             const videoAspect = videoRef.current.videoWidth / videoRef.current.videoHeight
-            canvasRef.current.width = videoRef.current.videoWidth
-            canvasRef.current.height = videoRef.current.videoHeight
           }
         }
         
@@ -110,10 +108,10 @@ export const useCameraDevices = () => {
     setSelectedCamera(nextCamera.deviceId)
   }
 
-  const requestCameraPermission = async (videoRef: React.RefObject<HTMLVideoElement>, canvasRef: React.RefObject<HTMLCanvasElement>) => {
+  const requestCameraPermission = async (videoRef: React.RefObject<HTMLVideoElement>) => {
     try {
       await navigator.mediaDevices.getUserMedia({ video: true })
-      initializeCamera(videoRef, canvasRef)
+      initializeCamera(videoRef)
     } catch (err) {
       console.error('Error requesting camera permission:', err)
       if (err instanceof Error) {

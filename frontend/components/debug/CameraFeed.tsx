@@ -24,7 +24,7 @@ export const CameraFeed = () => {
 
   useEffect(() => {
     if (selectedCamera) {
-      initializeCamera(videoRef, null)
+      initializeCamera(videoRef)
     }
   }, [selectedCamera, facingMode])
 
@@ -75,7 +75,7 @@ export const CameraFeed = () => {
             <p className="text-sm text-red-700">{error}</p>
             {error.includes('許可') && (
               <button
-                onClick={() => requestCameraPermission(videoRef, null)}
+                onClick={() => requestCameraPermission(videoRef)}
                 className="mt-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
               >
                 カメラの使用を許可する
