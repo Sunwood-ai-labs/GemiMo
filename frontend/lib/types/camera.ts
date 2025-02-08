@@ -1,14 +1,4 @@
-export interface Box3D {
-  position: [number, number, number] // [x, y, z]
-  dimensions: [number, number, number] // [width, height, depth]
-  rotation: [number, number, number] // [roll, pitch, yaw]
-  confidence: number
-}
-
-export interface Box3DData {
-  box_3d: number[];  // [x,y,z, width,height,depth, roll,pitch,yaw]
-  label: string;
-}
+export type Box3D = number[]
 
 export interface AnalysisResult {
   boxes?: Record<string, Box3D>
@@ -29,4 +19,16 @@ export interface CameraDeviceInfo {
   kind: 'videoinput'
 }
 
-export type FacingMode = 'user' | 'environment';
+export type FacingMode = 'user' | 'environment'
+
+export interface Resolution {
+  width: number
+  height: number
+  label: string
+}
+
+export const RESOLUTION_OPTIONS = [
+  { label: "低解像度 (640x480)", width: 640, height: 480 },
+  { label: "HD (1280x720)", width: 1280, height: 720 },
+  { label: "Full HD (1920x1080)", width: 1920, height: 1080 },
+] as const

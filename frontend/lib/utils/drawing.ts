@@ -1,4 +1,4 @@
-import { Box3D, AnalysisResult } from '@/lib/types/camera'
+import { Box3D, AnalysisResult } from '../types/camera'
 
 export const getObjectColor = (label: string): string => {
   const colors: { [key: string]: string } = {
@@ -14,22 +14,14 @@ export const getObjectColor = (label: string): string => {
 export const drawBox3D = (
   ctx: CanvasRenderingContext2D,
   label: string,
-  box: Box3D,
+  box: number[],
   width: number,
   height: number
 ) => {
-  // デフォルト値を設定してデストラクチャリング
-  const { 
-    position = [0, 0, 0] as [number, number, number],
-    dimensions = [1, 1, 1] as [number, number, number],
-    rotation = [0, 0, 0] as [number, number, number],
-    confidence = 0
-  } = box
+  // デフォルト値を設定
+  const [x, y, z, w, h, d, roll, pitch, yaw, confidence = 0] = box
   
   // Convert normalized coordinates to screen coordinates
-  const [x, y, z] = position
-  const [w, h, d] = dimensions
-  const [roll, pitch, yaw] = rotation
   const screenX = width * x
   const screenY = height * y
   
@@ -94,4 +86,34 @@ export const getStateColor = (state: string): string => {
     UNKNOWN: '#9E9E9E'
   }
   return colors[state as keyof typeof colors] || colors.UNKNOWN
+}
+
+export const drawDebugInfo = (ctx: CanvasRenderingContext2D, data: AnalysisResult) => {
+  const padding = 10
+  const lineHeight = 20
+  let y = padding + lineHeight
+
+  // Set text style
+  ctx.font = '14px monospace'
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
+  ctx.fillRect(0, 0, 200, 120)
+  ctx.fillStyle = 'white'
+
+  // Draw state and confidence
+  if (data.state) {
+    ctx.fillText(`State: ${data.state}`, padding, y)
+    y += lineHeight
+  }
+
+  if (data.confidence !== undefined) {
+    ctx.fillText(`Conf: ${(data.confidence * 100).toFixed(1)}%`, padding, y)
+    y += lineHeight
+  }
+
+  // Draw alarm parameters
+  if (data.alarm) {
+    ctx.fillText(`Vol: ${(data.alarm.volume * 100).toFixed(1)}%`, padding, y)
+    y += lineHeight
+    ctx.fillText(`Freq: ${data.alarm.frequency}Hz`, padding, y)
+  }
 }
