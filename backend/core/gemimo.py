@@ -118,6 +118,19 @@ class GemiMo:
         try:
             # Analyze frame with Gemini Vision API
             boxes = self._detect_pose(frame)
+            
+            # エラーレスポンスの場合の処理を追加
+            if isinstance(boxes, dict) and "error" in boxes:
+                logger.warning(f"Detection error: {boxes}")
+                return SleepData(
+                    state=SleepState.UNKNOWN,
+                    confidence=0.0,
+                    position=(0.0, 0.0, 0.0),
+                    orientation=(0.0, 0.0, 0.0),
+                    timestamp=time.time(),
+                    boxes={"error": boxes["raw_response"]}  # エラーメッセージを含める
+                )
+
             if not boxes:
                 return self._create_unknown_state()
 
@@ -152,20 +165,46 @@ class GemiMo:
                 frame,
                 """
                 Detect the 3D bounding boxes of bed and person.
-                Output a JSON object where each key is the object name
-                and value contains its 3D bounding box as
-                [x_center, y_center, z_center, x_size, y_size, z_size, roll, pitch, yaw].
-                Include confidence scores for each detection.
+                Return ONLY a valid JSON object in the following format:
+                {
+                    "person": [x, y, z, width, height, depth, roll, pitch, yaw, confidence],
+                    "bed": [x, y, z, width, height, depth, roll, pitch, yaw, confidence]
+                }
+                Do not include any other text or explanation.
                 """
             ])
-            # レスポンスのテキストをJSONとしてパース
+            
+            # レスポンス全体をログ出力
+            logger.info(f"Raw Gemini response: {response}")
+            logger.info(f"Response text: {response.text}")
+            
+            # APIレスポンスから最初の有効なJSONを抽出
+            text = response.text.strip()
             try:
-                result = json.loads(response.text)
-                logger.info(f"Gemini response: {result}")
+                # まず直接JSONとしてパースを試みる
+                result = json.loads(text)
+                logger.info(f"Successfully parsed Gemini response: {result}")
                 return result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse Gemini response as JSON: {e}")
-                return None
+            except json.JSONDecodeError:
+                # 直接パースに失敗した場合、JSONっぽい部分を探す
+                import re
+                json_pattern = r'\{[^}]*\}'
+                matches = re.findall(json_pattern, text)
+                if matches:
+                    try:
+                        result = json.loads(matches[0])
+                        logger.info(f"Extracted and parsed JSON from response: {result}")
+                        return result
+                    except json.JSONDecodeError:
+                        logger.error(f"Failed to parse extracted JSON: {matches[0]}")
+                        return None
+                else:
+                    # エラー時にレスポンスの内容を返す
+                    logger.error(f"No JSON-like structure found in response: {text}")
+                    return {
+                        "error": "No valid JSON found",
+                        "raw_response": text
+                    }
         except Exception as e:
             logger.error(f"Gemini API error: {e}")
             return None
