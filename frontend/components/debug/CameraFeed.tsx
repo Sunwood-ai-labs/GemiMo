@@ -1,13 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { AnalysisResult } from '@/lib/types/camera'
+import { drawBox3D, drawDebugInfo, getStateColor } from '@/lib/utils/drawing'
 import { useCameraDevices } from '@/lib/hooks/useCameraDevices'
-import { DebugCanvas } from './DebugCanvas'
-import { DebugInfo } from './DebugInfo'
 
 export const CameraFeed = () => {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const debugCanvasRef = useRef<HTMLCanvasElement>(null)
+  const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isAutoSending, setIsAutoSending] = useState(false)
+  const [timeRemaining, setTimeRemaining] = useState<number>(0)
+  const [isDebugModalOpen, setIsDebugModalOpen] = useState(false)
+  const [isInputModalOpen, setIsInputModalOpen] = useState(false)
+  const [isVisualizationModalOpen, setIsVisualizationModalOpen] = useState(false)
 
   const {
     availableCameras,
@@ -29,27 +36,22 @@ export const CameraFeed = () => {
   }, [selectedCamera, facingMode])
 
   const handleRecognize = async () => {
-    if (!videoRef.current || isAnalyzing) return
+    if (!canvasRef.current || isAnalyzing) return
     setIsAnalyzing(true)
 
     try {
-      // Create a temporary canvas to capture the current frame
-      const tempCanvas = document.createElement('canvas')
-      const video = videoRef.current
-      tempCanvas.width = video.videoWidth
-      tempCanvas.height = video.videoHeight
-      const ctx = tempCanvas.getContext('2d')
-      if (!ctx) throw new Error('Failed to get canvas context')
+      const canvas = canvasRef.current
+      // 現在のフレームをBase64画像として保存
+      const imageData = canvas.toDataURL('image/jpeg')
+      setCapturedImage(imageData)
       
-      ctx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height)
-      
-      const blob = await new Promise<Blob | null>((resolve) => tempCanvas.toBlob(resolve))
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg'))
       if (!blob) throw new Error('Failed to convert canvas to blob')
 
       const formData = new FormData()
       formData.append('file', blob, 'capture.jpg')
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
       const response = await fetch(`${apiUrl}/analyze`, {
         method: 'POST',
         body: formData,
@@ -59,11 +61,40 @@ export const CameraFeed = () => {
 
       const data = await response.json()
       setAnalysis(data)
+      updateDebugCanvas(data)
     } catch (error) {
       console.error('Error analyzing image:', error)
     } finally {
       setIsAnalyzing(false)
     }
+  }
+
+  const updateDebugCanvas = (data: AnalysisResult) => {
+    const canvas = debugCanvasRef.current
+    if (!canvas || !capturedImage) return
+    
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // Load and draw the captured image
+    const img = new Image()
+    img.onload = () => {
+      // Set canvas size to match image
+      canvas.width = img.width
+      canvas.height = img.height
+      
+      // Draw the image
+      ctx.drawImage(img, 0, 0)
+      
+      // Draw bounding boxes and debug info
+      if (data.boxes) {
+        Object.entries(data.boxes).forEach(([label, box]) => {
+          drawBox3D(ctx, label, box, canvas.width, canvas.height)
+        })
+      }
+      drawDebugInfo(ctx, data)
+    }
+    img.src = capturedImage
   }
 
   return (
@@ -140,20 +171,62 @@ export const CameraFeed = () => {
         </div>
       </div>
 
+      {/* Input Modal */}
+      <div className={`fixed inset-0 z-50 flex items-center justify-center ${isInputModalOpen ? '' : 'hidden'}`}
+           onClick={() => setIsInputModalOpen(false)}>
+        <div className="fixed inset-0 bg-black opacity-50"></div>
+        <div className="relative z-10 max-w-4xl w-full mx-4">
+          <img
+            src={capturedImage || ''}
+            alt="Input frame"
+            className="w-full rounded-lg shadow-xl"
+          />
+        </div>
+      </div>
+
+      {/* Visualization Modal */}
+      <div className={`fixed inset-0 z-50 flex items-center justify-center ${isVisualizationModalOpen ? '' : 'hidden'}`}
+           onClick={() => setIsVisualizationModalOpen(false)}>
+        <div className="fixed inset-0 bg-black opacity-50"></div>
+        <div className="relative z-10 max-w-4xl w-full mx-4">
+          <canvas
+            ref={debugCanvasRef}
+            className="w-full rounded-lg shadow-xl"
+          />
+        </div>
+      </div>
+
       {/* Debug View */}
       <div className="mt-4 p-4 rounded-lg backdrop-blur-sm bg-white/90 border border-white/10">
         <h3 className="text-sm font-medium text-gray-800 mb-2">Debug View</h3>
-        
-        {/* Debug Canvases */}
-        <DebugCanvas
-          videoRef={videoRef}
-          analysis={analysis}
-          facingMode={facingMode}
-        />
-
-        {/* Debug Info */}
-        <DebugInfo analysis={analysis} />
+        <div 
+          className="cursor-pointer hover:opacity-90 transition-opacity"
+          onClick={() => setIsDebugModalOpen(true)}
+        >
+          <canvas 
+            ref={debugCanvasRef}
+            className="w-full h-64 object-contain rounded-lg"
+          />
+        </div>
       </div>
+
+      {/* Debug Modal */}
+      {isDebugModalOpen && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setIsDebugModalOpen(false)}
+        >
+          <div 
+            className="relative bg-white rounded-lg p-2 max-w-4xl max-h-[90vh] overflow-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <canvas
+              ref={debugCanvasRef}
+              className="w-full h-auto"
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

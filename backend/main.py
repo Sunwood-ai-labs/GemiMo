@@ -7,6 +7,8 @@ import io
 import sys
 import json
 from pathlib import Path
+import os
+from datetime import datetime
 
 # パスの設定を修正
 sys.path.append(str(Path(__file__).parent))
@@ -22,6 +24,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 画像保存用のディレクトリを作成
+CAPTURES_DIR = Path("captures")
+CAPTURES_DIR.mkdir(exist_ok=True)
+
 @app.get("/")
 async def root():
     return {"message": "GemiMo API is running"}
@@ -34,6 +40,17 @@ async def analyze_image(file: UploadFile = File(...)):
     try:
         contents = await file.read()
         image = Image.open(io.BytesIO(contents))
+        
+        # RGBAの場合はRGBに変換
+        if image.mode == 'RGBA':
+            image = image.convert('RGB')
+        
+        # 画像を保存
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        image_path = CAPTURES_DIR / f"capture_{timestamp}.jpg"
+        image.save(image_path, 'JPEG')
+        logger.info(f"Saved capture to {image_path}")
+        
         gemimo = GemiMo()
         result = await gemimo.process_frame(image)
         
@@ -46,7 +63,8 @@ async def analyze_image(file: UploadFile = File(...)):
             "orientation": result.orientation if result else None,
             "timestamp": result.timestamp if result else None,
             "boxes": result.boxes if result else None,
-            "alarm": gemimo.alarm_controller.get_alarm_parameters(result) if result else None
+            "alarm": gemimo.alarm_controller.get_alarm_parameters(result) if result else None,
+            "image_path": str(image_path)
         }
         logger.info(f"Analysis response: {json.dumps(response_data, default=str)}")
         
