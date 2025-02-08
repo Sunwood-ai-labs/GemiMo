@@ -18,12 +18,18 @@ export const drawBox3D = (
   width: number,
   height: number
 ) => {
-  const { position, dimensions, rotation, confidence } = box
+  // デフォルト値を設定してデストラクチャリング
+  const { 
+    position = [0, 0, 0] as [number, number, number],
+    dimensions = [1, 1, 1] as [number, number, number],
+    rotation = [0, 0, 0] as [number, number, number],
+    confidence = 0
+  } = box
+  
+  // Convert normalized coordinates to screen coordinates
   const [x, y, z] = position
   const [w, h, d] = dimensions
   const [roll, pitch, yaw] = rotation
-  
-  // Convert normalized coordinates to screen coordinates
   const screenX = width * x
   const screenY = height * y
   
