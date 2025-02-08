@@ -38,6 +38,7 @@ export const CameraFeed = () => {
   const [selectedCamera, setSelectedCamera] = useState<string>('')
   const [error, setError] = useState<string>('')
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
+  const [lastDrawTime, setLastDrawTime] = useState(performance.now())
 
   useEffect(() => {
     let mounted = true;
@@ -286,40 +287,102 @@ export const CameraFeed = () => {
   const updateCanvas = (data: AnalysisResult) => {
     const canvas = canvasRef.current
     if (!canvas || !data.boxes) return
-
+  
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-
+  
+    const width = canvas.width
+    const height = canvas.height
+  
+    // Clear canvas and draw video frame
+    ctx.clearRect(0, 0, width, height)
+    if (videoRef.current) {
+      ctx.drawImage(videoRef.current, 0, 0, width, height)
+    }
+  
     // Draw 3D bounding boxes
     Object.entries(data.boxes).forEach(([label, box]) => {
-      const { position: [x, y, z], dimensions: [width, height, depth], rotation: [roll, pitch, yaw] } = box
-      ctx.strokeStyle = label === 'person' ? '#00ff00' : '#0000ff'
+      const { position, dimensions, rotation, confidence } = box
+      const [x, y, z] = position
+      const [w, h, d] = dimensions
+      const [roll, pitch, yaw] = rotation
+  
+      // Convert 3D coordinates to 2D screen coordinates
+      const scale = 1 / (z + 5) // Basic perspective projection
+      const screenX = width/2 + x * width
+      const screenY = height/2 + y * height
+      const screenW = w * width * scale
+      const screenH = h * height * scale
+  
+      // Draw the box
+      ctx.save()
+      ctx.translate(screenX, screenY)
+      ctx.rotate(yaw * Math.PI / 180)
+  
+      // Main box with transparency
+      ctx.strokeStyle = label === 'person' ? 'rgba(0, 255, 0, 0.8)' : 'rgba(0, 0, 255, 0.8)'
+      ctx.fillStyle = label === 'person' ? 'rgba(0, 255, 0, 0.1)' : 'rgba(0, 0, 255, 0.1)'
       ctx.lineWidth = 2
-
-      // Simple 2D projection of 3D box
-      const scale = 1 / (z + 5) // Basic perspective
-      const projectedWidth = width * scale
-      const projectedHeight = height * scale
-
-      ctx.strokeRect(
-        x - projectedWidth / 2,
-        y - projectedHeight / 2,
-        projectedWidth,
-        projectedHeight
-      )
-
-      // Label
+  
+      // Draw filled box with transparency
+      ctx.beginPath()
+      ctx.rect(-screenW/2, -screenH/2, screenW, screenH)
+      ctx.fill()
+      ctx.stroke()
+  
+      // Draw front face diagonal lines
+      ctx.beginPath()
+      ctx.moveTo(-screenW/2, -screenH/2)
+      ctx.lineTo(screenW/2, screenH/2)
+      ctx.moveTo(screenW/2, -screenH/2)
+      ctx.lineTo(-screenW/2, screenH/2)
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'
+      ctx.stroke()
+  
+      // Label with background
+      const labelText = `${label} (${(confidence * 100).toFixed(0)}%)`
+      ctx.font = '14px monospace'
+      const labelWidth = ctx.measureText(labelText).width
+      const padding = 4
+  
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'
+      ctx.fillRect(-screenW/2, -screenH/2 - 20, labelWidth + padding * 2, 20)
+      
       ctx.fillStyle = 'white'
-      ctx.fillText(label, x - projectedWidth / 2, y - projectedHeight / 2 - 5)
+      ctx.fillText(labelText, -screenW/2 + padding, -screenH/2 - 6)
+  
+      ctx.restore()
     })
-
-    // Draw sleep state indicator
-    ctx.fillStyle = getStateColor(data.state)
-    ctx.font = '24px Arial'
-    ctx.fillText(data.state, 10, 30)
-    ctx.fillText(`Confidence: ${(data.confidence * 100).toFixed(1)}%`, 10, 60)
+  
+    // Draw debug overlay
+    ctx.save()
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
+    ctx.fillRect(10, 10, 200, 140)
+  
+    ctx.font = '14px monospace'
+    ctx.fillStyle = 'white'
+    ctx.fillText(`State: ${data.state || 'UNKNOWN'}`, 20, 30)
+    ctx.fillText(`Conf: ${((data.confidence || 0) * 100).toFixed(1)}%`, 20, 50)
+  
+    if (data.position) {
+      const [x, y, z] = data.position
+      ctx.fillText(`Pos: ${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}`, 20, 70)
+    }
+  
+    if (data.orientation) {
+      const [r, p, y] = data.orientation
+      ctx.fillText(`Rot: ${r.toFixed(0)}°, ${p.toFixed(0)}°, ${y.toFixed(0)}°`, 20, 90)
+    }
+  
+    if (data.alarm) {
+      const { volume, frequency } = data.alarm
+      ctx.fillText(`Vol: ${(volume * 100).toFixed(0)}%, ${frequency}Hz`, 20, 110)
+    }
+  
+    ctx.fillText(`FPS: ${(1000 / (performance.now() - lastDrawTime)).toFixed(1)}`, 20, 130)
+    setLastDrawTime(performance.now())
+  
+    ctx.restore()
   }
 
   const draw3DBox = (
@@ -497,6 +560,47 @@ export const CameraFeed = () => {
                 {isAnalyzing ? 'Processing' : 'Ready'}
               </span>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Debug View */}
+      <div className="mt-4 p-4 rounded-lg backdrop-blur-sm bg-white/90 border border-white/10">
+        <h3 className="text-sm font-medium text-gray-800 mb-2">Debug View</h3>
+        <div className="space-y-2 text-sm font-mono">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <span className="text-gray-500">State:</span>
+              <span className="ml-2" style={{ color: getStateColor(analysis?.state || 'UNKNOWN') }}>
+                {analysis?.state || 'UNKNOWN'}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500">Confidence:</span>
+              <span className="ml-2">{analysis?.confidence ? (analysis.confidence * 100).toFixed(1) + '%' : 'N/A'}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">Position:</span>
+              <span className="ml-2">{analysis?.position ? 
+                `[${analysis.position.map(v => v.toFixed(2)).join(', ')}]` : 'N/A'}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">Orientation:</span>
+              <span className="ml-2">{analysis?.orientation ? 
+                `[${analysis.orientation.map(v => v.toFixed(1)).join('°, ')}°]` : 'N/A'}</span>
+            </div>
+            {analysis?.alarm && (
+              <>
+                <div>
+                  <span className="text-gray-500">Volume:</span>
+                  <span className="ml-2">{analysis.alarm.volume.toFixed(2)}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Frequency:</span>
+                  <span className="ml-2">{analysis.alarm.frequency}Hz</span>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

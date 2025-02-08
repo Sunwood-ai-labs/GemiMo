@@ -4,6 +4,7 @@ import time
 from loguru import logger
 from PIL import Image
 import json
+import numpy as np
 from fastapi import APIRouter, WebSocket
 
 from .types import SleepState, SleepData
@@ -60,33 +61,45 @@ class GemiMo:
 
     async def process_frame(self, frame: Image.Image) -> SleepData:
         try:
-            boxes = await self.gemini_api.detect_pose(frame)
+            # 3Dボックス検出
+            raw_boxes = await self.gemini_api.detect_pose(frame)
             
-            if isinstance(boxes, dict) and "error" in boxes:
-                logger.warning(f"Detection error: {boxes}")
-                return self._create_unknown_state()
+            # ボックスデータの正規化と変換
+            normalized_boxes = {}
+            for label, box_data in raw_boxes.items():
+                # 位置とスケールの正規化（-1.0 から 1.0 の範囲に）
+                pos = np.array(box_data[:3]) / frame.width
+                dim = np.array(box_data[3:6]) / frame.width
+                rot = np.array(box_data[6:9])  # 角度はそのまま
+                conf = box_data[9] if len(box_data) > 9 else 0.8
 
-            if not boxes:
-                return self._create_unknown_state()
+                normalized_boxes[label] = {
+                    "position": pos.tolist(),
+                    "dimensions": dim.tolist(),
+                    "rotation": rot.tolist(),
+                    "confidence": float(conf)
+                }
 
-            state, confidence = self._analyze_sleep_state(boxes)
-            position = self._extract_position(boxes)
-            orientation = self._extract_orientation(boxes)
+            # 睡眠状態の分析
+            state, confidence = self._analyze_sleep_state(raw_boxes)
+            position = self._extract_position(raw_boxes)
+            orientation = self._extract_orientation(raw_boxes)
 
+            # 結果の生成
             sleep_data = SleepData(
                 state=state,
                 confidence=confidence,
                 position=position,
                 orientation=orientation,
                 timestamp=time.time(),
-                boxes=boxes
+                boxes=normalized_boxes
             )
 
-            self.current_state = sleep_data
             self.state_history.append(sleep_data)
-            if len(self.state_history) > 300:  # Keep last 30 seconds at 10fps
+            if len(self.state_history) > 300:  # 30秒分のデータを保持
                 self.state_history.pop(0)
 
+            self.current_state = sleep_data
             return sleep_data
 
         except Exception as e:

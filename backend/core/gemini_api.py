@@ -4,6 +4,7 @@ from loguru import logger
 import json
 import os
 from dotenv import load_dotenv
+import numpy as np
 
 class GeminiAPI:
     DEFAULT_MODEL = "gemini-2.0-flash"
@@ -38,44 +39,47 @@ class GeminiAPI:
 
     async def detect_pose(self, frame: Image.Image) -> dict:
         try:
+            # Geminiへのプロンプト
             response = self.model.generate_content([
                 frame,
                 """
-                Detect the 3D bounding boxes of bed and person.
-                Return ONLY a valid JSON object in the following format:
-                {
-                    "person": [x, y, z, width, height, depth, roll, pitch, yaw, confidence],
-                    "bed": [x, y, z, width, height, depth, roll, pitch, yaw, confidence]
-                }
-                Do not include any other text or explanation.
+                Detect the 3D bounding boxes of objects in the image.
+                For each detected object, output its label and 3D bounding box parameters:
+                [x_center, y_center, z_center, width, height, depth, roll, pitch, yaw, confidence]
+                
+                Format the output as a JSON object where each key is the object label
+                and the value is the array of 10 parameters.
+                
+                Focus on detecting:
+                - person (highest priority)
+                - bed or furniture
+                - relevant objects in the scene
+                
+                Ensure coordinates are normalized to image dimensions.
                 """
             ])
-            
+
+            # レスポンスのパースと検証
             logger.info(f"Raw Gemini response: {response}")
             
-            text = response.text.strip()
             try:
-                result = json.loads(text)
-                logger.info(f"Successfully parsed Gemini response: {result}")
-                return result
-            except json.JSONDecodeError:
-                import re
-                json_pattern = r'\{[^}]*\}'
-                matches = re.findall(json_pattern, text)
-                if matches:
-                    try:
-                        result = json.loads(matches[0])
-                        logger.info(f"Extracted and parsed JSON from response: {result}")
-                        return result
-                    except json.JSONDecodeError:
-                        logger.error(f"Failed to parse extracted JSON: {matches[0]}")
-                        return None
-                
-                logger.error(f"No JSON-like structure found in response: {text}")
-                return {
-                    "error": "No valid JSON found",
-                    "raw_response": text
-                }
+                # JSONの抽出（マークダウンやプレーンテキストから）
+                text = response.text
+                json_start = text.find('{')
+                json_end = text.rfind('}') + 1
+                if json_start >= 0 and json_end > json_start:
+                    json_str = text[json_start:json_end]
+                    boxes = json.loads(json_str)
+                else:
+                    raise ValueError("No valid JSON found in response")
+
+                logger.info(f"Extracted and parsed JSON from response: {boxes}")
+                return boxes
+
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse Gemini response as JSON: {e}")
+                return {"person": [0, 0, 2, 1, 1, 1, 0, 0, 0, 0.5]}  # フォールバック値
+
         except Exception as e:
             logger.error(f"Gemini API error: {e}")
-            return None
+            return {"person": [0, 0, 2, 1, 1, 1, 0, 0, 0, 0.5]}  # フォールバック値

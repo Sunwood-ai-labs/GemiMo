@@ -42,7 +42,8 @@ async def analyze_image(file: UploadFile = File(...)):
             "position": result.position,
             "orientation": result.orientation,
             "timestamp": result.timestamp,
-            "boxes": result.boxes
+            "boxes": result.boxes,
+            "alarm": gemimo.alarm_controller.get_alarm_parameters(result)
         }
     except Exception as e:
         logger.error(f"Error processing image: {e}")
