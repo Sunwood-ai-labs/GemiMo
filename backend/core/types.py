@@ -15,10 +15,16 @@ class Box3D(TypedDict):
     confidence: float
 
 @dataclass
+class AlarmParameters:
+    volume: float
+    frequency: float
+
+@dataclass
 class SleepData:
     state: SleepState
     confidence: float
     position: Tuple[float, float, float]
     orientation: Tuple[float, float, float]
     timestamp: float
-    boxes: Optional[Dict[str, Box3D]] = None
+    boxes: Dict[str, Box3D]
+    alarm: AlarmParameters

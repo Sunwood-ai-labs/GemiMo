@@ -7,7 +7,7 @@ import json
 import numpy as np
 from fastapi import APIRouter, WebSocket
 
-from .types import SleepState, SleepData
+from .types import SleepState, SleepData, Box3D
 from .alarm import AlarmController
 from .gemini_api import GeminiAPI
 
@@ -15,8 +15,6 @@ class GemiMo:
     def __init__(self):
         self.gemini_api = GeminiAPI()
         self.alarm_controller = AlarmController()
-        self.state_history: List[SleepData] = []
-        self.current_state: Optional[SleepData] = None
         logger.info(f"GemiMo initialized with model: {self.gemini_api.current_model}")
 
     async def handle_message(self, message: Union[bytes, str]) -> Optional[Dict]:
@@ -61,75 +59,74 @@ class GemiMo:
 
     async def process_frame(self, frame: Image.Image) -> SleepData:
         try:
-            # 3Dボックス検出
-            raw_boxes = await self.gemini_api.detect_pose(frame)
+            # Gemini APIで3Dボックスを検出
+            boxes = await self.gemini_api.detect_pose(frame)
             
-            # ボックスデータの正規化と変換
-            normalized_boxes = {}
-            for label, box_data in raw_boxes.items():
-                # 位置とスケールの正規化（-1.0 から 1.0 の範囲に）
-                pos = np.array(box_data[:3]) / frame.width
-                dim = np.array(box_data[3:6]) / frame.width
-                rot = np.array(box_data[6:9])  # 角度はそのまま
-                conf = box_data[9] if len(box_data) > 9 else 0.8
+            # 検出結果をBox3D形式に変換
+            processed_boxes = {}
+            for label, box_data in boxes.items():
+                if len(box_data) >= 10:  # [x,y,z, w,h,d, roll,pitch,yaw, conf]
+                    processed_boxes[label] = {
+                        "position": box_data[:3],
+                        "dimensions": box_data[3:6],
+                        "rotation": box_data[6:9],
+                        "confidence": box_data[9]
+                    }
 
-                normalized_boxes[label] = {
-                    "position": pos.tolist(),
-                    "dimensions": dim.tolist(),
-                    "rotation": rot.tolist(),
-                    "confidence": float(conf)
-                }
+            # 状態を判定
+            state, confidence = self._analyze_sleep_state(boxes)
+            position = self._extract_position(boxes)
+            orientation = self._extract_orientation(boxes)
 
-            # 睡眠状態の分析
-            state, confidence = self._analyze_sleep_state(raw_boxes)
-            position = self._extract_position(raw_boxes)
-            orientation = self._extract_orientation(raw_boxes)
+            # アラームパラメータを取得
+            alarm_params = self.alarm_controller.get_alarm_parameters(state)
 
-            # 結果の生成
-            sleep_data = SleepData(
+            # 結果を返す
+            return SleepData(
                 state=state,
                 confidence=confidence,
                 position=position,
                 orientation=orientation,
                 timestamp=time.time(),
-                boxes=normalized_boxes
+                boxes=processed_boxes,
+                alarm=alarm_params
             )
 
-            self.state_history.append(sleep_data)
-            if len(self.state_history) > 300:  # 30秒分のデータを保持
-                self.state_history.pop(0)
-
-            self.current_state = sleep_data
-            return sleep_data
-
         except Exception as e:
-            logger.error(f"Frame processing error: {e}")
+            logger.error(f"Error processing frame: {e}")
             return self._create_unknown_state()
 
     def _analyze_sleep_state(self, boxes: Dict) -> tuple[SleepState, float]:
-        if "person" not in boxes:
+        if not boxes:
             return SleepState.UNKNOWN, 0.0
 
-        person = boxes["person"]
-        pitch = person[7]  # pitch angle from 3D box
-        confidence = person[9] if len(person) > 9 else 0.8
+        # Personが検出された場合の処理
+        if "person" in boxes:
+            box_data = boxes["person"]
+            pitch = box_data[7] if len(box_data) > 7 else 0
+            confidence = box_data[9] if len(box_data) > 9 else 0.5
 
-        if abs(pitch) < 20:
-            return SleepState.SLEEPING, confidence
-        elif abs(pitch) > 45:
-            return SleepState.AWAKE, confidence
-        else:
-            return SleepState.STRUGGLING, confidence * 0.8
+            # 姿勢の判定
+            if -30 <= pitch <= 30:
+                return SleepState.SLEEPING, confidence
+            else:
+                return SleepState.AWAKE, confidence
+
+        # その他のオブジェクトの分析
+        total_confidence = sum(box[9] if len(box) > 9 else 0.5 for box in boxes.values())
+        avg_confidence = total_confidence / len(boxes) if boxes else 0.0
+
+        return SleepState.UNKNOWN, avg_confidence
 
     def _extract_position(self, boxes: Dict) -> tuple[float, float, float]:
-        if "person" not in boxes:
-            return (0.0, 0.0, 0.0)
-        return tuple(boxes["person"][:3])
+        if "person" in boxes and len(boxes["person"]) >= 3:
+            return tuple(boxes["person"][:3])
+        return (0.0, 0.0, 0.0)
 
     def _extract_orientation(self, boxes: Dict) -> tuple[float, float, float]:
-        if "person" not in boxes:
-            return (0.0, 0.0, 0.0)
-        return tuple(boxes["person"][6:9])
+        if "person" in boxes and len(boxes["person"]) >= 9:
+            return tuple(boxes["person"][6:9])
+        return (0.0, 0.0, 0.0)
 
     def _create_unknown_state(self) -> SleepData:
         return SleepData(
@@ -137,7 +134,9 @@ class GemiMo:
             confidence=0.0,
             position=(0.0, 0.0, 0.0),
             orientation=(0.0, 0.0, 0.0),
-            timestamp=time.time()
+            timestamp=time.time(),
+            boxes={},
+            alarm={"volume": 0.0, "frequency": 400}
         )
 
 router = APIRouter()

@@ -5,6 +5,7 @@ import json
 import os
 from dotenv import load_dotenv
 import numpy as np
+import re
 
 class GeminiAPI:
     DEFAULT_MODEL = "gemini-2.0-flash"
@@ -43,43 +44,70 @@ class GeminiAPI:
             response = self.model.generate_content([
                 frame,
                 """
-                Detect the 3D bounding boxes of objects in the image.
-                For each detected object, output its label and 3D bounding box parameters:
-                [x_center, y_center, z_center, width, height, depth, roll, pitch, yaw, confidence]
-                
-                Format the output as a JSON object where each key is the object label
-                and the value is the array of 10 parameters.
-                
-                Focus on detecting:
-                - person (highest priority)
-                - bed or furniture
-                - relevant objects in the scene
-                
-                Ensure coordinates are normalized to image dimensions.
+                Analyze the image and detect objects with their 3D positions and dimensions.
+                Return ONLY a JSON array of objects, where each object has:
+                - "label": descriptive name of the object
+                - "box_3d": array of 9 values [x,y,z,width,height,depth,roll,pitch,yaw]
+
+                Coordinate system:
+                - x,y,z: center position normalized to [-1, 1]
+                - width,height,depth: dimensions normalized to [0, 1]
+                - roll,pitch,yaw: rotation in degrees [-180, 180]
+
+                Example output format:
+                [
+                    {"label": "person", "box_3d": [0,0,0, 0.5,1.7,0.3, 0,0,0]},
+                    {"label": "chair", "box_3d": [0.5,0,0.3, 0.4,0.8,0.4, 0,0,45]}
+                ]
+
+                Focus on:
+                1. Person detection (highest priority)
+                2. Furniture and large objects
+                3. Small objects on surfaces
                 """
             ])
 
-            # レスポンスのパースと検証
-            logger.info(f"Raw Gemini response: {response}")
+            # レスポンスのデバッグ出力
+            logger.info(f"Raw Gemini response text: {response.text}")
             
             try:
-                # JSONの抽出（マークダウンやプレーンテキストから）
-                text = response.text
-                json_start = text.find('{')
-                json_end = text.rfind('}') + 1
-                if json_start >= 0 and json_end > json_start:
-                    json_str = text[json_start:json_end]
-                    boxes = json.loads(json_str)
+                # テキストからJSONを抽出（マークダウンやプレーンテキストも処理）
+                text = response.text.strip()
+                json_pattern = r'\[\s*\{.*?\}\s*\]'  # より柔軟なJSONアレイのパターン
+                json_match = re.search(json_pattern, text, re.DOTALL)
+                
+                if json_match:
+                    json_str = json_match.group(0)
+                    logger.info(f"Extracted JSON array: {json_str}")
+                    boxes_array = json.loads(json_str)
+                    
+                    # 結果を変換してスケーリングを適用
+                    boxes = {}
+                    for item in boxes_array:
+                        if 'label' in item and 'box_3d' in item:
+                            label = item['label']
+                            box_3d = item['box_3d']
+                            if len(box_3d) == 9:  # x,y,z, w,h,d, roll,pitch,yaw
+                                # 位置を[-1,1]から[0,1]に正規化
+                                pos = [(v + 1) / 2 for v in box_3d[:3]]
+                                # サイズは既に[0,1]で正規化済み
+                                dim = box_3d[3:6]
+                                # 角度は[-180,180]のまま
+                                rot = box_3d[6:9]
+                                
+                                boxes[label] = pos + dim + rot + [0.8]  # confidence追加
+                    
+                    logger.info(f"Processed boxes: {boxes}")
+                    return boxes
                 else:
-                    raise ValueError("No valid JSON found in response")
-
-                logger.info(f"Extracted and parsed JSON from response: {boxes}")
-                return boxes
+                    logger.error("No valid JSON array found in response")
+                    return {"person": [0.5, 0.5, 0.5, 0.5, 1.7, 0.3, 0, 0, 0, 0.5]}
 
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse Gemini response as JSON: {e}")
-                return {"person": [0, 0, 2, 1, 1, 1, 0, 0, 0, 0.5]}  # フォールバック値
+                logger.error(f"JSON parse error: {e}")
+                logger.error(f"Problematic text: {text}")
+                return {"person": [0.5, 0.5, 0.5, 0.5, 1.7, 0.3, 0, 0, 0, 0.5]}
 
         except Exception as e:
             logger.error(f"Gemini API error: {e}")
-            return {"person": [0, 0, 2, 1, 1, 1, 0, 0, 0, 0.5]}  # フォールバック値
+            return {"person": [0.5, 0.5, 0.5, 0.5, 1.7, 0.3, 0, 0, 0, 0.5]}

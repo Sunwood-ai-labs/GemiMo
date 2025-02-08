@@ -36,15 +36,22 @@ async def analyze_image(file: UploadFile = File(...)):
         image = Image.open(io.BytesIO(contents))
         gemimo = GemiMo()
         result = await gemimo.process_frame(image)
-        return {
-            "state": result.state.value,
-            "confidence": result.confidence,
-            "position": result.position,
-            "orientation": result.orientation,
-            "timestamp": result.timestamp,
-            "boxes": result.boxes,
-            "alarm": gemimo.alarm_controller.get_alarm_parameters(result)
+        
+        # レスポンスの詳細をログに出力
+        response_data = {
+            "raw_result": result,
+            "state": result.state.value if result else None,
+            "confidence": result.confidence if result else None,
+            "position": result.position if result else None,
+            "orientation": result.orientation if result else None,
+            "timestamp": result.timestamp if result else None,
+            "boxes": result.boxes if result else None,
+            "alarm": gemimo.alarm_controller.get_alarm_parameters(result) if result else None
         }
+        logger.info(f"Analysis response: {json.dumps(response_data, default=str)}")
+        
+        return response_data
+        
     except Exception as e:
         logger.error(f"Error processing image: {e}")
         return {"error": str(e)}

@@ -284,6 +284,88 @@ export const CameraFeed = () => {
     }
   }, [hasCamera])
 
+  const drawBox3D = (
+    ctx: CanvasRenderingContext2D,
+    label: string,
+    box: Box3D,
+    width: number,
+    height: number
+  ) => {
+    const { position, dimensions, rotation } = box
+    const [x, y, z] = position
+    const [w, h, d] = dimensions
+    const [roll, pitch, yaw] = rotation
+    
+    // 画面中心を基準に座標を変換
+    const screenX = width * (0.5 + x)
+    const screenY = height * (0.5 + y)
+    
+    // スケーリング係数（z座標に応じて変化）
+    const scale = 200 * (1 - z * 0.5)
+    
+    ctx.save()
+    
+    // 中心位置に移動
+    ctx.translate(screenX, screenY)
+    
+    // 回転を適用（ラジアンに変換）
+    ctx.rotate((yaw * Math.PI) / 180)
+    
+    // ボックスの描画
+    const boxWidth = w * scale
+    const boxHeight = h * scale
+    
+    ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)'
+    ctx.fillStyle = 'rgba(0, 255, 0, 0.1)'
+    ctx.lineWidth = 2
+    
+    // メインのボックスを描画
+    ctx.beginPath()
+    ctx.rect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight)
+    ctx.fill()
+    ctx.stroke()
+    
+    // 3D効果を表す線を描画
+    ctx.beginPath()
+    ctx.moveTo(-boxWidth / 2, -boxHeight / 2)
+    ctx.lineTo(-boxWidth / 2 + 20, -boxHeight / 2 - 20)
+    ctx.moveTo(boxWidth / 2, -boxHeight / 2)
+    ctx.lineTo(boxWidth / 2 + 20, -boxHeight / 2 - 20)
+    ctx.moveTo(-boxWidth / 2, boxHeight / 2)
+    ctx.lineTo(-boxWidth / 2 + 20, boxHeight / 2 - 20)
+    ctx.moveTo(boxWidth / 2, boxHeight / 2)
+    ctx.lineTo(boxWidth / 2 + 20, boxHeight / 2 - 20)
+    ctx.strokeStyle = 'rgba(0, 255, 0, 0.4)'
+    ctx.stroke()
+    
+    // ラベルの描画
+    ctx.font = '14px monospace'
+    const padding = 4
+    const metrics = ctx.measureText(label)
+    const labelWidth = metrics.width + padding * 2
+    
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
+    ctx.fillRect(-labelWidth / 2, -boxHeight / 2 - 24, labelWidth, 20)
+    
+    ctx.fillStyle = 'white'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(label, 0, -boxHeight / 2 - 14)
+    
+    // 信頼度インジケーター
+    const confidenceStr = `${(box.confidence * 100).toFixed(0)}%`
+    const confMetrics = ctx.measureText(confidenceStr)
+    const confWidth = confMetrics.width + padding * 2
+    
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
+    ctx.fillRect(-confWidth / 2, boxHeight / 2 + 4, confWidth, 20)
+    
+    ctx.fillStyle = 'white'
+    ctx.fillText(confidenceStr, 0, boxHeight / 2 + 14)
+    
+    ctx.restore()
+  }
+
   const updateCanvas = (data: AnalysisResult) => {
     const canvas = canvasRef.current
     if (!canvas || !data.boxes) return
@@ -294,93 +376,45 @@ export const CameraFeed = () => {
     const width = canvas.width
     const height = canvas.height
   
-    // Clear canvas and draw video frame
+    // キャンバスをクリアしてビデオフレームを描画
     ctx.clearRect(0, 0, width, height)
     if (videoRef.current) {
       ctx.drawImage(videoRef.current, 0, 0, width, height)
     }
   
-    // Draw 3D bounding boxes
+    // 検出されたボックスを描画
     Object.entries(data.boxes).forEach(([label, box]) => {
-      const { position, dimensions, rotation, confidence } = box
-      const [x, y, z] = position
-      const [w, h, d] = dimensions
-      const [roll, pitch, yaw] = rotation
-  
-      // Convert 3D coordinates to 2D screen coordinates
-      const scale = 1 / (z + 5) // Basic perspective projection
-      const screenX = width/2 + x * width
-      const screenY = height/2 + y * height
-      const screenW = w * width * scale
-      const screenH = h * height * scale
-  
-      // Draw the box
-      ctx.save()
-      ctx.translate(screenX, screenY)
-      ctx.rotate(yaw * Math.PI / 180)
-  
-      // Main box with transparency
-      ctx.strokeStyle = label === 'person' ? 'rgba(0, 255, 0, 0.8)' : 'rgba(0, 0, 255, 0.8)'
-      ctx.fillStyle = label === 'person' ? 'rgba(0, 255, 0, 0.1)' : 'rgba(0, 0, 255, 0.1)'
-      ctx.lineWidth = 2
-  
-      // Draw filled box with transparency
-      ctx.beginPath()
-      ctx.rect(-screenW/2, -screenH/2, screenW, screenH)
-      ctx.fill()
-      ctx.stroke()
-  
-      // Draw front face diagonal lines
-      ctx.beginPath()
-      ctx.moveTo(-screenW/2, -screenH/2)
-      ctx.lineTo(screenW/2, screenH/2)
-      ctx.moveTo(screenW/2, -screenH/2)
-      ctx.lineTo(-screenW/2, screenH/2)
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'
-      ctx.stroke()
-  
-      // Label with background
-      const labelText = `${label} (${(confidence * 100).toFixed(0)}%)`
-      ctx.font = '14px monospace'
-      const labelWidth = ctx.measureText(labelText).width
-      const padding = 4
-  
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'
-      ctx.fillRect(-screenW/2, -screenH/2 - 20, labelWidth + padding * 2, 20)
-      
-      ctx.fillStyle = 'white'
-      ctx.fillText(labelText, -screenW/2 + padding, -screenH/2 - 6)
-  
-      ctx.restore()
+      drawBox3D(ctx, label, box, width, height)
     })
   
-    // Draw debug overlay
+    // デバッグオーバーレイ
     ctx.save()
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
-    ctx.fillRect(10, 10, 200, 140)
+    ctx.fillRect(10, 10, 250, 160)
   
     ctx.font = '14px monospace'
     ctx.fillStyle = 'white'
-    ctx.fillText(`State: ${data.state || 'UNKNOWN'}`, 20, 30)
-    ctx.fillText(`Conf: ${((data.confidence || 0) * 100).toFixed(1)}%`, 20, 50)
-  
+    ctx.textAlign = 'left'
+    
+    const y_offset = 30
+    ctx.fillText(`Objects: ${Object.keys(data.boxes).length}`, 20, y_offset)
+    ctx.fillText(`State: ${data.state || 'UNKNOWN'}`, 20, y_offset + 25)
+    ctx.fillText(`Confidence: ${data.confidence ? (data.confidence * 100).toFixed(1) + '%' : 'N/A'}`, 20, y_offset + 50)
+    
     if (data.position) {
       const [x, y, z] = data.position
-      ctx.fillText(`Pos: ${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}`, 20, 70)
+      ctx.fillText(`Position: [${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}]`, 20, y_offset + 75)
     }
-  
+    
     if (data.orientation) {
       const [r, p, y] = data.orientation
-      ctx.fillText(`Rot: ${r.toFixed(0)}°, ${p.toFixed(0)}°, ${y.toFixed(0)}°`, 20, 90)
+      ctx.fillText(`Rotation: [${r.toFixed(0)}°, ${p.toFixed(0)}°, ${y.toFixed(0)}°]`, 20, y_offset + 100)
     }
-  
+    
     if (data.alarm) {
-      const { volume, frequency } = data.alarm
-      ctx.fillText(`Vol: ${(volume * 100).toFixed(0)}%, ${frequency}Hz`, 20, 110)
+      ctx.fillText(`Volume: ${(data.alarm.volume * 100).toFixed(0)}%`, 20, y_offset + 125)
+      ctx.fillText(`Frequency: ${data.alarm.frequency}Hz`, 20, y_offset + 150)
     }
-  
-    ctx.fillText(`FPS: ${(1000 / (performance.now() - lastDrawTime)).toFixed(1)}`, 20, 130)
-    setLastDrawTime(performance.now())
   
     ctx.restore()
   }
