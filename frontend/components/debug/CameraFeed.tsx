@@ -18,6 +18,7 @@ export const CameraFeed = () => {
   const [isInputModalOpen, setIsInputModalOpen] = useState(false)
   const [isVisualizationModalOpen, setIsVisualizationModalOpen] = useState(false)
   const [processingStatus, setProcessingStatus] = useState<string>('')
+  const [debugLog, setDebugLog] = useState<string>('')
 
   const {
     availableCameras,
@@ -89,6 +90,11 @@ export const CameraFeed = () => {
       }
       
       setAnalysis(data)
+      // デバッグログの更新
+      const logContent = typeof data.raw_result === 'string' 
+        ? data.raw_result 
+        : JSON.stringify(data.raw_result, null, 2)
+      setDebugLog(logContent)
       setProcessingStatus('分析完了')
       updateDebugCanvas(data)
     } catch (error) {
@@ -270,6 +276,11 @@ export const CameraFeed = () => {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Debug Information */}
+      <div className="mt-4">
+        <DebugInfo logData={debugLog} />
       </div>
 
       {/* Debug Modal */}
