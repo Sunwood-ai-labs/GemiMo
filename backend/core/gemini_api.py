@@ -38,6 +38,14 @@ class GeminiAPI:
         self.model = genai.GenerativeModel(model_id)
         logger.info(f"Model updated to: {model_id}")
 
+    def _validate_box_3d(self, box_3d: list) -> list:
+        """3Dボックスデータを検証し、必要に応じて修正する"""
+        if len(box_3d) < 9:
+            logger.warning(f"Invalid box_3d length: {len(box_3d)}, padding with zeros")
+            # 不足している値を0で補完
+            return box_3d + [0] * (9 - len(box_3d))
+        return box_3d[:9]  # 必要な9つの値のみを使用
+
     async def detect_pose(self, frame: Image.Image) -> dict:
         try:
             # Geminiへのプロンプト
@@ -77,20 +85,26 @@ class GeminiAPI:
                     # 3Dボックスを標準化された形式に変換
                     processed_boxes = {}
                     for box in boxes_list:
-                        label = box["label"]
-                        box_3d = box["box_3d"]
-                        
-                        # 座標を[0,1]範囲に正規化
-                        x, y, z = [(v + 1) / 2 for v in box_3d[:3]]
-                        w, h, d = box_3d[3:6]
-                        roll, pitch, yaw = box_3d[6:9]
-                        
-                        # 固定の信頼度スコアを追加 (実際のモデルからの信頼度が利用可能になれば更新)
-                        confidence = 0.8
-                        
-                        processed_boxes[label] = [x, y, z, w, h, d, roll, pitch, yaw, confidence]
+                        try:
+                            label = box["label"]
+                            box_3d = self._validate_box_3d(box["box_3d"])
+                            
+                            # 座標を[0,1]範囲に正規化
+                            x, y, z = [(v + 1) / 2 for v in box_3d[:3]]
+                            w, h, d = [max(0, min(1, v)) for v in box_3d[3:6]]  # 0-1の範囲に制限
+                            roll, pitch, yaw = box_3d[6:9]
+                            
+                            # 固定の信頼度スコアを追加
+                            confidence = 0.8
+                            
+                            processed_boxes[label] = [x, y, z, w, h, d, roll, pitch, yaw, confidence]
+                            logger.debug(f"Processed box for {label}: {processed_boxes[label]}")
+                            
+                        except Exception as e:
+                            logger.warning(f"Error processing box {box}: {e}")
+                            continue
                     
-                    logger.info(f"Processed boxes: {processed_boxes}")
+                    logger.info(f"Successfully processed {len(processed_boxes)} boxes")
                     return processed_boxes
                     
                 else:
