@@ -1,6 +1,7 @@
+import io
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict, Union
 import numpy as np
 from PIL import Image
 import time
@@ -8,6 +9,7 @@ from loguru import logger
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
+import json
 from fastapi import APIRouter, WebSocket
 
 load_dotenv()
@@ -22,22 +24,80 @@ class SleepState(Enum):
 class SleepData:
     state: SleepState
     confidence: float
-    position: Tuple[float, float, float]  # x, y, z
-    orientation: Tuple[float, float, float]  # roll, pitch, yaw
+    position: Tuple[float, float, float]
+    orientation: Tuple[float, float, float]
     timestamp: float
     boxes: Optional[Dict] = None
 
 class GemiMo:
+    DEFAULT_MODEL = "gemini-2.0-flash"
+    ALLOWED_MODELS = [
+        "gemini-2.0-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-2.0-flash-lite-preview-02-05",
+        "gemini-2.0-pro-preview-02-05"
+    ]
+
     def __init__(self):
+        self._load_api_key()
+        self.current_model = self.DEFAULT_MODEL
+        self._update_model(self.current_model)
+        self.state_history: List[SleepData] = []
+        self.current_state: Optional[SleepData] = None
+        logger.info(f"GemiMo initialized with model: {self.current_model}")
+
+    def _load_api_key(self):
+        # .envファイルを再読み込み
+        load_dotenv(override=True)
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable is required")
-            
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-pro-vision')
-        self.state_history: List[SleepData] = []
-        self.current_state: Optional[SleepData] = None
-        logger.info("GemiMo initialized with Gemini API")
+        logger.info("API key reloaded")
+
+    async def handle_message(self, message: Union[bytes, str]) -> Optional[Dict]:
+        if isinstance(message, str):
+            try:
+                data = json.loads(message)
+                if data.get("type") == "config":
+                    if data.get("reload_settings", False):
+                        self._load_api_key()
+                    self._update_model(data.get("model", self.DEFAULT_MODEL))
+                    return {"status": "ok", "model": self.current_model}
+                elif data.get("type") == "recognize":
+                    # Return the last analysis result if available
+                    if self.current_state:
+                        return {
+                            "state": self.current_state.state.value,
+                            "confidence": self.current_state.confidence,
+                            "position": self.current_state.position,
+                            "orientation": self.current_state.orientation,
+                            "timestamp": self.current_state.timestamp,
+                            "boxes": self.current_state.boxes,
+                            "alarm": self.get_alarm_parameters()
+                        }
+                    return {"status": "error", "message": "No analysis available"}
+            except json.JSONDecodeError:
+                logger.error("Invalid JSON message")
+                return None
+        else:
+            # Handle image frame
+            try:
+                frame = Image.open(io.BytesIO(message))
+                frame = frame.convert('RGB')  # Ensure RGB format
+                sleep_data = await self.process_frame(frame)
+                return {
+                    "state": sleep_data.state.value,
+                    "confidence": sleep_data.confidence,
+                    "position": sleep_data.position,
+                    "orientation": sleep_data.orientation,
+                    "timestamp": sleep_data.timestamp,
+                    "boxes": sleep_data.boxes,
+                    "alarm": self.get_alarm_parameters()
+                }
+            except Exception as e:
+                logger.error(f"Error processing image: {e}")
+                return {"status": "error", "message": str(e)}
 
     async def process_frame(self, frame: Image.Image) -> SleepData:
         try:
@@ -148,11 +208,9 @@ async def gemimo_feed(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            frame = await websocket.receive_bytes()
-            analysis = await gemimo.process_frame(frame)
-            if analysis:
-                await websocket.send_json({
-                    "analysis": analysis
-                })
+            message = await websocket.receive_text()
+            response = await gemimo.handle_message(message)
+            if response:
+                await websocket.send_json(response)
     except Exception as e:
         print(f"WebSocket error: {e}")
