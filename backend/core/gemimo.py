@@ -46,6 +46,18 @@ class GemiMo:
         self.current_state: Optional[SleepData] = None
         logger.info(f"GemiMo initialized with model: {self.current_model}")
 
+    def _update_model(self, model_id: str) -> None:
+        """
+        指定されたモデルIDでGeminiモデルを更新する
+        """
+        if model_id not in self.ALLOWED_MODELS:
+            logger.warning(f"Invalid model ID: {model_id}, using default: {self.DEFAULT_MODEL}")
+            model_id = self.DEFAULT_MODEL
+        
+        self.current_model = model_id
+        self.model = genai.GenerativeModel(model_id)
+        logger.info(f"Model updated to: {model_id}")
+
     def _load_api_key(self):
         # .envファイルを再読み込み
         load_dotenv(override=True)
@@ -56,7 +68,27 @@ class GemiMo:
         logger.info("API key reloaded")
 
     async def handle_message(self, message: Union[bytes, str]) -> Optional[Dict]:
-        if isinstance(message, str):
+        if isinstance(message, bytes):
+            # Handle binary image data
+            try:
+                frame = Image.open(io.BytesIO(message))
+                frame = frame.convert('RGB')  # Ensure RGB format
+                sleep_data = self.process_frame(frame)  # 同期的に呼び出し
+                if sleep_data:
+                    return {
+                        "state": sleep_data.state.value,
+                        "confidence": sleep_data.confidence,
+                        "position": sleep_data.position,
+                        "orientation": sleep_data.orientation,
+                        "timestamp": sleep_data.timestamp,
+                        "boxes": sleep_data.boxes,
+                        "alarm": self.get_alarm_parameters()
+                    }
+                return {"status": "error", "message": "Failed to process frame"}
+            except Exception as e:
+                logger.error(f"Error processing image: {e}")
+                return {"status": "error", "message": str(e)}
+        elif isinstance(message, str):
             try:
                 data = json.loads(message)
                 if data.get("type") == "config":
@@ -80,29 +112,12 @@ class GemiMo:
             except json.JSONDecodeError:
                 logger.error("Invalid JSON message")
                 return None
-        else:
-            # Handle image frame
-            try:
-                frame = Image.open(io.BytesIO(message))
-                frame = frame.convert('RGB')  # Ensure RGB format
-                sleep_data = await self.process_frame(frame)
-                return {
-                    "state": sleep_data.state.value,
-                    "confidence": sleep_data.confidence,
-                    "position": sleep_data.position,
-                    "orientation": sleep_data.orientation,
-                    "timestamp": sleep_data.timestamp,
-                    "boxes": sleep_data.boxes,
-                    "alarm": self.get_alarm_parameters()
-                }
-            except Exception as e:
-                logger.error(f"Error processing image: {e}")
-                return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": "Invalid message format"}
 
-    async def process_frame(self, frame: Image.Image) -> SleepData:
+    def process_frame(self, frame: Image.Image) -> SleepData:
         try:
             # Analyze frame with Gemini Vision API
-            boxes = await self._detect_pose(frame)
+            boxes = self._detect_pose(frame)
             if not boxes:
                 return self._create_unknown_state()
 
@@ -131,9 +146,9 @@ class GemiMo:
             logger.error(f"Frame processing error: {e}")
             return self._create_unknown_state()
 
-    async def _detect_pose(self, frame: Image.Image) -> Optional[Dict]:
+    def _detect_pose(self, frame: Image.Image) -> Optional[Dict]:
         try:
-            response = await self.model.generate_content([
+            response = self.model.generate_content([
                 frame,
                 """
                 Detect the 3D bounding boxes of bed and person.
@@ -143,7 +158,14 @@ class GemiMo:
                 Include confidence scores for each detection.
                 """
             ])
-            return response.text
+            # レスポンスのテキストをJSONとしてパース
+            try:
+                result = json.loads(response.text)
+                logger.info(f"Gemini response: {result}")
+                return result
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse Gemini response as JSON: {e}")
+                return None
         except Exception as e:
             logger.error(f"Gemini API error: {e}")
             return None
@@ -208,9 +230,15 @@ async def gemimo_feed(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            message = await websocket.receive_text()
-            response = await gemimo.handle_message(message)
+            message = await websocket.receive()
+            if "bytes" in message:
+                response = await gemimo.handle_message(message["bytes"])
+            elif "text" in message:
+                response = await gemimo.handle_message(message["text"])
+            else:
+                response = {"status": "error", "message": "Invalid message type"}
+            
             if response:
                 await websocket.send_json(response)
     except Exception as e:
-        print(f"WebSocket error: {e}")
+        logger.error(f"WebSocket error: {e}")
