@@ -1,79 +1,29 @@
 import io
-from dataclasses import dataclass
-from enum import Enum
-from typing import Optional, Tuple, List, Dict, Union
-import numpy as np
-from PIL import Image
+from typing import Optional, Dict, Union, List
 import time
 from loguru import logger
-import google.generativeai as genai
-import os
-from dotenv import load_dotenv
+from PIL import Image
 import json
 from fastapi import APIRouter, WebSocket
 
-load_dotenv()
-
-class SleepState(Enum):
-    UNKNOWN = "UNKNOWN"
-    SLEEPING = "SLEEPING"
-    STRUGGLING = "STRUGGLING"
-    AWAKE = "AWAKE"
-
-@dataclass
-class SleepData:
-    state: SleepState
-    confidence: float
-    position: Tuple[float, float, float]
-    orientation: Tuple[float, float, float]
-    timestamp: float
-    boxes: Optional[Dict] = None
+from .types import SleepState, SleepData
+from .alarm import AlarmController
+from .gemini_api import GeminiAPI
 
 class GemiMo:
-    DEFAULT_MODEL = "gemini-2.0-flash"
-    ALLOWED_MODELS = [
-        "gemini-2.0-flash",
-        "gemini-1.5-flash-latest",
-        "gemini-2.0-flash-lite-preview-02-05",
-        "gemini-2.0-pro-preview-02-05"
-    ]
-
     def __init__(self):
-        self._load_api_key()
-        self.current_model = self.DEFAULT_MODEL
-        self._update_model(self.current_model)
+        self.gemini_api = GeminiAPI()
+        self.alarm_controller = AlarmController()
         self.state_history: List[SleepData] = []
         self.current_state: Optional[SleepData] = None
-        logger.info(f"GemiMo initialized with model: {self.current_model}")
-
-    def _update_model(self, model_id: str) -> None:
-        """
-        指定されたモデルIDでGeminiモデルを更新する
-        """
-        if model_id not in self.ALLOWED_MODELS:
-            logger.warning(f"Invalid model ID: {model_id}, using default: {self.DEFAULT_MODEL}")
-            model_id = self.DEFAULT_MODEL
-        
-        self.current_model = model_id
-        self.model = genai.GenerativeModel(model_id)
-        logger.info(f"Model updated to: {model_id}")
-
-    def _load_api_key(self):
-        # .envファイルを再読み込み
-        load_dotenv(override=True)
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY environment variable is required")
-        genai.configure(api_key=api_key)
-        logger.info("API key reloaded")
+        logger.info(f"GemiMo initialized with model: {self.gemini_api.current_model}")
 
     async def handle_message(self, message: Union[bytes, str]) -> Optional[Dict]:
         if isinstance(message, bytes):
-            # Handle binary image data
             try:
                 frame = Image.open(io.BytesIO(message))
-                frame = frame.convert('RGB')  # Ensure RGB format
-                sleep_data = self.process_frame(frame)  # 同期的に呼び出し
+                frame = frame.convert('RGB')
+                sleep_data = await self.process_frame(frame)
                 if sleep_data:
                     return {
                         "state": sleep_data.state.value,
@@ -82,7 +32,7 @@ class GemiMo:
                         "orientation": sleep_data.orientation,
                         "timestamp": sleep_data.timestamp,
                         "boxes": sleep_data.boxes,
-                        "alarm": self.get_alarm_parameters()
+                        "alarm": self.alarm_controller.get_alarm_parameters(sleep_data)
                     }
                 return {"status": "error", "message": "Failed to process frame"}
             except Exception as e:
@@ -93,20 +43,14 @@ class GemiMo:
                 data = json.loads(message)
                 if data.get("type") == "config":
                     if data.get("reload_settings", False):
-                        self._load_api_key()
-                    self._update_model(data.get("model", self.DEFAULT_MODEL))
-                    return {"status": "ok", "model": self.current_model}
+                        self.gemini_api._load_api_key()
+                    self.gemini_api._update_model(data.get("model", self.gemini_api.DEFAULT_MODEL))
+                    return {"status": "ok", "model": self.gemini_api.current_model}
                 elif data.get("type") == "recognize":
-                    # Return the last analysis result if available
                     if self.current_state:
                         return {
                             "state": self.current_state.state.value,
-                            "confidence": self.current_state.confidence,
-                            "position": self.current_state.position,
-                            "orientation": self.current_state.orientation,
-                            "timestamp": self.current_state.timestamp,
-                            "boxes": self.current_state.boxes,
-                            "alarm": self.get_alarm_parameters()
+                            "alarm": self.alarm_controller.get_alarm_parameters(self.current_state)
                         }
                     return {"status": "error", "message": "No analysis available"}
             except json.JSONDecodeError:
@@ -114,27 +58,17 @@ class GemiMo:
                 return None
         return {"status": "error", "message": "Invalid message format"}
 
-    def process_frame(self, frame: Image.Image) -> SleepData:
+    async def process_frame(self, frame: Image.Image) -> SleepData:
         try:
-            # Analyze frame with Gemini Vision API
-            boxes = self._detect_pose(frame)
+            boxes = await self.gemini_api.detect_pose(frame)
             
-            # エラーレスポンスの場合の処理を追加
             if isinstance(boxes, dict) and "error" in boxes:
                 logger.warning(f"Detection error: {boxes}")
-                return SleepData(
-                    state=SleepState.UNKNOWN,
-                    confidence=0.0,
-                    position=(0.0, 0.0, 0.0),
-                    orientation=(0.0, 0.0, 0.0),
-                    timestamp=time.time(),
-                    boxes={"error": boxes["raw_response"]}  # エラーメッセージを含める
-                )
+                return self._create_unknown_state()
 
             if not boxes:
                 return self._create_unknown_state()
 
-            # Calculate sleep state based on 3D pose
             state, confidence = self._analyze_sleep_state(boxes)
             position = self._extract_position(boxes)
             orientation = self._extract_orientation(boxes)
@@ -159,63 +93,13 @@ class GemiMo:
             logger.error(f"Frame processing error: {e}")
             return self._create_unknown_state()
 
-    def _detect_pose(self, frame: Image.Image) -> Optional[Dict]:
-        try:
-            response = self.model.generate_content([
-                frame,
-                """
-                Detect the 3D bounding boxes of bed and person.
-                Return ONLY a valid JSON object in the following format:
-                {
-                    "person": [x, y, z, width, height, depth, roll, pitch, yaw, confidence],
-                    "bed": [x, y, z, width, height, depth, roll, pitch, yaw, confidence]
-                }
-                Do not include any other text or explanation.
-                """
-            ])
-            
-            # レスポンス全体をログ出力
-            logger.info(f"Raw Gemini response: {response}")
-            logger.info(f"Response text: {response.text}")
-            
-            # APIレスポンスから最初の有効なJSONを抽出
-            text = response.text.strip()
-            try:
-                # まず直接JSONとしてパースを試みる
-                result = json.loads(text)
-                logger.info(f"Successfully parsed Gemini response: {result}")
-                return result
-            except json.JSONDecodeError:
-                # 直接パースに失敗した場合、JSONっぽい部分を探す
-                import re
-                json_pattern = r'\{[^}]*\}'
-                matches = re.findall(json_pattern, text)
-                if matches:
-                    try:
-                        result = json.loads(matches[0])
-                        logger.info(f"Extracted and parsed JSON from response: {result}")
-                        return result
-                    except json.JSONDecodeError:
-                        logger.error(f"Failed to parse extracted JSON: {matches[0]}")
-                        return None
-                else:
-                    # エラー時にレスポンスの内容を返す
-                    logger.error(f"No JSON-like structure found in response: {text}")
-                    return {
-                        "error": "No valid JSON found",
-                        "raw_response": text
-                    }
-        except Exception as e:
-            logger.error(f"Gemini API error: {e}")
-            return None
-
-    def _analyze_sleep_state(self, boxes: Dict) -> Tuple[SleepState, float]:
+    def _analyze_sleep_state(self, boxes: Dict) -> tuple[SleepState, float]:
         if "person" not in boxes:
             return SleepState.UNKNOWN, 0.0
 
         person = boxes["person"]
         pitch = person[7]  # pitch angle from 3D box
-        confidence = person.get("confidence", 0.8)
+        confidence = person[9] if len(person) > 9 else 0.8
 
         if abs(pitch) < 20:
             return SleepState.SLEEPING, confidence
@@ -224,12 +108,12 @@ class GemiMo:
         else:
             return SleepState.STRUGGLING, confidence * 0.8
 
-    def _extract_position(self, boxes: Dict) -> Tuple[float, float, float]:
+    def _extract_position(self, boxes: Dict) -> tuple[float, float, float]:
         if "person" not in boxes:
             return (0.0, 0.0, 0.0)
         return tuple(boxes["person"][:3])
 
-    def _extract_orientation(self, boxes: Dict) -> Tuple[float, float, float]:
+    def _extract_orientation(self, boxes: Dict) -> tuple[float, float, float]:
         if "person" not in boxes:
             return (0.0, 0.0, 0.0)
         return tuple(boxes["person"][6:9])
@@ -242,24 +126,6 @@ class GemiMo:
             orientation=(0.0, 0.0, 0.0),
             timestamp=time.time()
         )
-
-    def get_alarm_parameters(self) -> Dict:
-        """Get alarm parameters based on current sleep state"""
-        if not self.current_state:
-            return {"volume": 0.0, "frequency": 400}
-
-        base_params = {
-            SleepState.SLEEPING: {"volume": 0.3, "frequency": 400},
-            SleepState.STRUGGLING: {"volume": 0.5, "frequency": 800},
-            SleepState.AWAKE: {"volume": 0.2, "frequency": 600},
-            SleepState.UNKNOWN: {"volume": 0.0, "frequency": 400}
-        }
-
-        params = base_params[self.current_state.state]
-        
-        # Adjust volume based on confidence
-        params["volume"] *= self.current_state.confidence
-        return params
 
 router = APIRouter()
 
