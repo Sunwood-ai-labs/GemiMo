@@ -5,6 +5,7 @@ from loguru import logger
 from PIL import Image
 import io
 import sys
+import json
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent))
@@ -32,21 +33,20 @@ async def gemimo_feed(websocket: WebSocket):
     
     try:
         while True:
-            frame_data = await websocket.receive_bytes()
-            frame = Image.open(io.BytesIO(frame_data))
-            logger.info(f"Received frame with size: {frame.size}")
+            message = await websocket.receive()
             
-            sleep_data = await gemimo.process_frame(frame)
-            logger.info(f"Sleep state: {sleep_data.state.value}")
-            
-            await websocket.send_json({
-                "state": sleep_data.state.value,
-                "confidence": sleep_data.confidence,
-                "position": sleep_data.position,
-                "orientation": sleep_data.orientation,
-                "timestamp": sleep_data.timestamp,
-                "alarm": gemimo.get_alarm_parameters()
-            })
+            # テキストメッセージ（設定）またはバイナリメッセージ（フレーム）を処理
+            if "text" in message:
+                result = await gemimo.handle_message(message["text"])
+            elif "bytes" in message:
+                result = await gemimo.handle_message(message["bytes"])
+            else:
+                logger.warning(f"Unsupported message type: {message}")
+                continue
+
+            if result:
+                await websocket.send_json(result)
+                
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
