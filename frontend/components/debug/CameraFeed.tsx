@@ -15,6 +15,7 @@ export const CameraFeed = () => {
   const [isDebugModalOpen, setIsDebugModalOpen] = useState(false)
   const [isInputModalOpen, setIsInputModalOpen] = useState(false)
   const [isVisualizationModalOpen, setIsVisualizationModalOpen] = useState(false)
+  const [processingStatus, setProcessingStatus] = useState<string>('')
 
   const {
     availableCameras,
@@ -36,49 +37,87 @@ export const CameraFeed = () => {
   }, [selectedCamera, facingMode])
 
   const handleRecognize = async () => {
-    if (!canvasRef.current || isAnalyzing) return
+    if (!canvasRef.current || !videoRef.current || isAnalyzing) return
     setIsAnalyzing(true)
+    setProcessingStatus('画像の準備中...')
 
     try {
       const canvas = canvasRef.current
+      const video = videoRef.current
+      
+      // キャンバスのサイズをビデオのサイズに合わせる
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      
+      // ビデオフレームをキャンバスに描画
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Failed to get canvas context')
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      
       // 現在のフレームをBase64画像として保存
+      setProcessingStatus('画像のキャプチャ中...')
       const imageData = canvas.toDataURL('image/jpeg')
       setCapturedImage(imageData)
       
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      setProcessingStatus('画像データの変換中...')
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg'))
       if (!blob) throw new Error('Failed to convert canvas to blob')
 
       const formData = new FormData()
       formData.append('file', blob, 'capture.jpg')
 
+      setProcessingStatus('分析リクエスト送信中...')
       const response = await fetch(`${apiUrl}/analyze`, {
         method: 'POST',
         body: formData,
       })
 
-      if (!response.ok) throw new Error('Network response was not ok')
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server error: ${errorText}`);
+      }
 
+      setProcessingStatus('分析結果の処理中...')
       const data = await response.json()
+      console.log('Analysis response:', data);  // デバッグ用ログを追加
+      
+      if (data.status === 'error') {
+        throw new Error(data.error || 'Unknown error occurred')
+      }
+      
       setAnalysis(data)
+      setProcessingStatus('分析完了')
       updateDebugCanvas(data)
     } catch (error) {
       console.error('Error analyzing image:', error)
+      setProcessingStatus(`エラー: ${error instanceof Error ? error.message : '不明なエラー'}`)
     } finally {
-      setIsAnalyzing(false)
+      setTimeout(() => {
+        setProcessingStatus('')
+        setIsAnalyzing(false)
+      }, 2000)
     }
   }
 
   const updateDebugCanvas = (data: AnalysisResult) => {
+    console.log('Updating debug canvas with data:', data);  // デバッグログを追加
     const canvas = debugCanvasRef.current
-    if (!canvas || !capturedImage) return
+    if (!canvas || !capturedImage) {
+      console.warn('Canvas or captured image is not available');  // エラー状態のログ
+      return
+    }
     
     const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    if (!ctx) {
+      console.error('Failed to get canvas context');  // エラー状態のログ
+      return
+    }
 
     // Load and draw the captured image
     const img = new Image()
     img.onload = () => {
+      console.log('Image loaded, size:', img.width, 'x', img.height);  // 画像サイズのログ
       // Set canvas size to match image
       canvas.width = img.width
       canvas.height = img.height
@@ -88,6 +127,7 @@ export const CameraFeed = () => {
       
       // Draw bounding boxes and debug info
       if (data.boxes) {
+        console.log('Drawing boxes:', Object.keys(data.boxes));  // 検出されたボックスのログ
         Object.entries(data.boxes).forEach(([label, box]) => {
           drawBox3D(ctx, label, box, canvas.width, canvas.height)
         })
@@ -156,6 +196,12 @@ export const CameraFeed = () => {
           className="absolute inset-0 w-full h-full object-cover"
           style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
         />
+        
+        {/* Hidden canvas for capture */}
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 w-full h-full pointer-events-none opacity-0"
+        />
 
         {/* Control Panel */}
         <div className="absolute bottom-0 left-0 right-0 p-4 backdrop-blur-md bg-black/30">
@@ -169,6 +215,15 @@ export const CameraFeed = () => {
             </button>
           </div>
         </div>
+
+        {/* 進捗状況の表示 */}
+        {(isAnalyzing || processingStatus) && (
+          <div className="absolute inset-x-0 bottom-20 flex justify-center">
+            <div className="bg-black/70 text-white px-4 py-2 rounded-full text-sm">
+              {processingStatus || '処理中...'}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Input Modal */}

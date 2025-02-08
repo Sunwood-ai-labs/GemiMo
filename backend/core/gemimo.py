@@ -59,46 +59,39 @@ class GemiMo:
 
     async def process_frame(self, frame: Image.Image) -> SleepData:
         try:
+            logger.info("Starting frame processing")
             # Gemini APIで3Dボックスを検出
+            logger.info("Detecting pose with Gemini API...")
             boxes = await self.gemini_api.detect_pose(frame)
-            
-            # 検出結果をBox3D形式に変換
-            processed_boxes = {}
-            for label, box_data in boxes.items():
-                if len(box_data) >= 10:  # [x,y,z, w,h,d, roll,pitch,yaw, conf]
-                    processed_boxes[label] = {
-                        "position": box_data[:3],
-                        "dimensions": box_data[3:6],
-                        "rotation": box_data[6:9],
-                        "confidence": box_data[9]
-                    }
+            logger.info(f"Detected boxes: {boxes}")
 
-            # 状態を判定
+            if not boxes:
+                logger.warning("No boxes detected")
+                return self._create_unknown_state()
+
+            # 睡眠状態の分析
+            logger.info("Analyzing sleep state...")
             state, confidence = self._analyze_sleep_state(boxes)
+            logger.info(f"Analyzed state: {state}, confidence: {confidence}")
+
+            # 位置と向きの抽出
             position = self._extract_position(boxes)
             orientation = self._extract_orientation(boxes)
+            logger.info(f"Extracted position: {position}, orientation: {orientation}")
 
-            # アラームパラメータを取得
-            alarm_params = self.alarm_controller.get_alarm_parameters(SleepData(
+            # アラームパラメータの取得
+            sleep_data = SleepData(
                 state=state,
                 confidence=confidence,
                 position=position,
                 orientation=orientation,
                 timestamp=time.time(),
-                boxes=processed_boxes,
-                alarm={"volume": 0.0, "frequency": 400}
-            ))
-
-            # 結果を返す
-            return SleepData(
-                state=state,
-                confidence=confidence,
-                position=position,
-                orientation=orientation,
-                timestamp=time.time(),
-                boxes=processed_boxes,
-                alarm=alarm_params
+                boxes=boxes,
+                alarm=self.alarm_controller.get_alarm_parameters(state)
             )
+            logger.info(f"Created sleep data: {sleep_data}")
+
+            return sleep_data
 
         except Exception as e:
             logger.error(f"Error processing frame: {e}")

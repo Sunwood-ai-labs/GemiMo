@@ -38,23 +38,35 @@ async def analyze_image(file: UploadFile = File(...)):
     画像を受け取って解析結果を返すエンドポイント
     """
     try:
+        logger.info("Starting image analysis...")
+        
+        # 画像の読み込み
+        logger.info("Reading uploaded file...")
         contents = await file.read()
         image = Image.open(io.BytesIO(contents))
+        logger.info(f"Image loaded: {image.size}x{image.mode}")
         
         # RGBAの場合はRGBに変換
         if image.mode == 'RGBA':
+            logger.info("Converting RGBA to RGB...")
             image = image.convert('RGB')
         
         # 画像を保存
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         image_path = CAPTURES_DIR / f"capture_{timestamp}.jpg"
+        logger.info(f"Saving capture to {image_path}...")
         image.save(image_path, 'JPEG')
-        logger.info(f"Saved capture to {image_path}")
+        logger.info("Image saved successfully")
         
+        # GemiMo処理の実行
+        logger.info("Initializing GemiMo processing...")
         gemimo = GemiMo()
+        logger.info("Starting frame processing...")
         result = await gemimo.process_frame(image)
+        logger.info("Frame processing completed")
         
-        # レスポンスの詳細をログに出力
+        # レスポンスの準備
+        logger.info("Preparing response data...")
         response_data = {
             "raw_result": result,
             "state": result.state.value if result else None,
@@ -64,15 +76,17 @@ async def analyze_image(file: UploadFile = File(...)):
             "timestamp": result.timestamp if result else None,
             "boxes": result.boxes if result else None,
             "alarm": gemimo.alarm_controller.get_alarm_parameters(result) if result else None,
-            "image_path": str(image_path)
+            "image_path": str(image_path),
+            "status": "success"
         }
-        logger.info(f"Analysis response: {json.dumps(response_data, default=str)}")
+        logger.info(f"Analysis completed successfully: {json.dumps(response_data, default=str)}")
         
         return response_data
         
     except Exception as e:
-        logger.error(f"Error processing image: {e}")
-        return {"error": str(e)}
+        error_msg = f"Error processing image: {str(e)}"
+        logger.error(error_msg)
+        return {"error": error_msg, "status": "error"}
 
 @app.websocket("/ws/gemimo")
 async def gemimo_feed(websocket: WebSocket):
