@@ -40,8 +40,9 @@ export const CameraFeed = () => {
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
 
   useEffect(() => {
-    // カメラデバイスの一覧を取得
-    const listCameras = async () => {
+    let mounted = true;
+
+    const updateCameraList = async () => {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices()
         const cameras = devices
@@ -51,18 +52,37 @@ export const CameraFeed = () => {
             label: device.label || `Camera ${device.deviceId.slice(0, 4)}`,
             kind: device.kind as 'videoinput'
           }))
-        setAvailableCameras(cameras)
-        // デフォルトで最初のカメラを選択
-        if (cameras.length > 0 && !selectedCamera) {
-          setSelectedCamera(cameras[0].deviceId)
+        
+        if (mounted) {
+          setAvailableCameras(cameras)
+          // 初回のみ、デフォルトカメラを選択
+          if (cameras.length > 0 && !selectedCamera) {
+            // デフォルトではフロントカメラを優先
+            const frontCamera = cameras.find(camera => 
+              camera.label.toLowerCase().includes('front') || 
+              camera.label.toLowerCase().includes('フロント')
+            )
+            setSelectedCamera(frontCamera?.deviceId || cameras[0].deviceId)
+          }
         }
       } catch (err) {
         console.error('Error listing cameras:', err)
-        setError('カメラの一覧取得に失敗しました')
+        if (mounted) {
+          setError('カメラの一覧取得に失敗しました')
+        }
       }
     }
 
-    listCameras()
+    // 初回実行
+    updateCameraList()
+
+    // デバイスの変更を監視
+    navigator.mediaDevices.addEventListener('devicechange', updateCameraList)
+
+    return () => {
+      mounted = false
+      navigator.mediaDevices.removeEventListener('devicechange', updateCameraList)
+    }
   }, [])
 
   useEffect(() => {
@@ -73,31 +93,49 @@ export const CameraFeed = () => {
 
   const initializeCamera = async () => {
     try {
+      // 既存のストリームを停止
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream
         stream.getTracks().forEach(track => track.stop())
       }
 
-      // まずカメラの権限を要求
+      // カメラの権限確認
       const permission = await navigator.permissions.query({ name: 'camera' as PermissionName })
       if (permission.state === 'denied') {
         throw new Error('カメラへのアクセスが拒否されています。ブラウザの設定からカメラの使用を許可してください。')
       }
 
+      // カメラの制約を設定
       const constraints: MediaStreamConstraints = {
         video: {
           deviceId: selectedCamera ? { exact: selectedCamera } : undefined,
-          facingMode: facingMode,
+          facingMode: selectedCamera ? undefined : facingMode,
           width: { ideal: 1280 },
-          height: { ideal: 720 }
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 }
         }
       }
 
+      // ストリームを取得
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream
+        videoRef.current.onloadedmetadata = () => {
+          if (canvasRef.current && videoRef.current) {
+            // ビデオのアスペクト比を維持しながらCanvasのサイズを設定
+            const videoAspect = videoRef.current.videoWidth / videoRef.current.videoHeight
+            canvasRef.current.width = videoRef.current.videoWidth
+            canvasRef.current.height = videoRef.current.videoHeight
+          }
+        }
+        
         setHasCamera(true)
         setError('')
+
+        // デバイス情報を更新
+        const videoTrack = stream.getVideoTracks()[0]
+        console.log('Using device:', videoTrack.label)
       }
     } catch (err) {
       console.error('Error accessing camera:', err)
@@ -206,6 +244,32 @@ export const CameraFeed = () => {
     }
   }, [isAutoSending])
 
+  useEffect(() => {
+    let animationFrameId: number
+
+    const drawVideoToCanvas = () => {
+      if (videoRef.current && canvasRef.current) {
+        const canvas = canvasRef.current
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          // ビデオフレームをcanvasに描画
+          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height)
+        }
+      }
+      animationFrameId = requestAnimationFrame(drawVideoToCanvas)
+    }
+
+    if (hasCamera) {
+      drawVideoToCanvas()
+    }
+
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId)
+      }
+    }
+  }, [hasCamera])
+
   const updateCanvas = (data: AnalysisResult) => {
     const canvas = canvasRef.current
     if (!canvas || !data.boxes) return
@@ -305,9 +369,10 @@ export const CameraFeed = () => {
             onChange={(e) => setSelectedCamera(e.target.value)}
             className="block w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-primary/50"
           >
+            <option value="">カメラを選択</option>
             {availableCameras.map(camera => (
               <option key={camera.deviceId} value={camera.deviceId}>
-                {camera.label}
+                {camera.label || `カメラ ${camera.deviceId.slice(0, 4)}`}
               </option>
             ))}
           </select>
@@ -316,6 +381,24 @@ export const CameraFeed = () => {
             className="px-4 py-2 text-sm font-medium text-white bg-brand-primary rounded-lg hover:bg-brand-primary/80"
           >
             {facingMode === 'user' ? '背面カメラ' : 'フロントカメラ'}
+          </button>
+          <button
+            onClick={() => {
+              navigator.mediaDevices.enumerateDevices()
+                .then(devices => {
+                  const cameras = devices
+                    .filter(device => device.kind === 'videoinput')
+                    .map(device => ({
+                      deviceId: device.deviceId,
+                      label: device.label || `Camera ${device.deviceId.slice(0, 4)}`,
+                      kind: device.kind as 'videoinput'
+                    }))
+                  setAvailableCameras(cameras)
+                })
+            }}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+          >
+            更新
           </button>
         </div>
         {error && (
@@ -330,13 +413,13 @@ export const CameraFeed = () => {
           playsInline
           muted
           className="absolute inset-0 w-full h-full object-cover"
+          style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
         />
         
         <canvas 
-          ref={canvasRef} 
-          width={1280}
-          height={960}
+          ref={canvasRef}
           className="absolute inset-0 w-full h-full"
+          style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
         />
 
         <div className="absolute bottom-0 left-0 right-0 p-4 backdrop-blur-md bg-black/30">
