@@ -79,7 +79,15 @@ class GemiMo:
             orientation = self._extract_orientation(boxes)
 
             # アラームパラメータを取得
-            alarm_params = self.alarm_controller.get_alarm_parameters(state)
+            alarm_params = self.alarm_controller.get_alarm_parameters(SleepData(
+                state=state,
+                confidence=confidence,
+                position=position,
+                orientation=orientation,
+                timestamp=time.time(),
+                boxes=processed_boxes,
+                alarm={"volume": 0.0, "frequency": 400}
+            ))
 
             # 結果を返す
             return SleepData(
@@ -100,22 +108,27 @@ class GemiMo:
         if not boxes:
             return SleepState.UNKNOWN, 0.0
 
-        # Personが検出された場合の処理
-        if "person" in boxes:
-            box_data = boxes["person"]
-            pitch = box_data[7] if len(box_data) > 7 else 0
-            confidence = box_data[9] if len(box_data) > 9 else 0.5
+        # 検出されたオブジェクトの分析
+        num_objects = len(boxes)
+        total_confidence = 0.0
 
-            # 姿勢の判定
-            if -30 <= pitch <= 30:
-                return SleepState.SLEEPING, confidence
-            else:
-                return SleepState.AWAKE, confidence
+        for label, box_data in boxes.items():
+            if len(box_data) > 9:  # confidence値が存在する場合
+                total_confidence += box_data[9]
 
-        # その他のオブジェクトの分析
-        total_confidence = sum(box[9] if len(box) > 9 else 0.5 for box in boxes.values())
-        avg_confidence = total_confidence / len(boxes) if boxes else 0.0
+        # 信頼度の平均を計算
+        avg_confidence = total_confidence / num_objects if num_objects > 0 else 0.0
 
+        # オブジェクトの組み合わせによる状態判定
+        keyboard_present = "keyboard" in boxes
+        mouse_present = "mouse" in boxes
+        stuffed_animal_present = any(label.lower().startswith(("stuffed", "toy", "doll")) for label in boxes)
+
+        if keyboard_present and mouse_present:
+            return SleepState.AWAKE, avg_confidence
+        elif stuffed_animal_present:
+            return SleepState.SLEEPING, avg_confidence
+        
         return SleepState.UNKNOWN, avg_confidence
 
     def _extract_position(self, boxes: Dict) -> tuple[float, float, float]:

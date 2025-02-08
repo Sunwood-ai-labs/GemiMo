@@ -1,218 +1,56 @@
 import { useEffect, useRef, useState } from 'react'
-
-interface Box3D {
-  position: [number, number, number] // [x, y, z]
-  dimensions: [number, number, number] // [width, height, depth]
-  rotation: [number, number, number] // [roll, pitch, yaw]
-  confidence: number
-}
-
-interface AnalysisResult {
-  boxes?: Record<string, Box3D>
-  state?: string
-  confidence?: number
-  position?: [number, number, number]
-  orientation?: [number, number, number]
-  timestamp?: number
-  alarm?: {
-    volume: number
-    frequency: number
-  }
-}
-
-interface CameraDeviceInfo {
-  deviceId: string
-  label: string
-  kind: 'videoinput'
-}
+import { AnalysisResult } from '@/lib/types/camera'
+import { drawBox3D, drawDebugInfo, getStateColor } from '@/lib/utils/drawing'
+import { useCameraDevices } from '@/lib/hooks/useCameraDevices'
 
 export const CameraFeed = () => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
-  const [hasCamera, setHasCamera] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isAutoSending, setIsAutoSending] = useState(false)
   const [timeRemaining, setTimeRemaining] = useState<number>(0)
-  const [availableCameras, setAvailableCameras] = useState<CameraDeviceInfo[]>([])
-  const [selectedCamera, setSelectedCamera] = useState<string>('')
-  const [error, setError] = useState<string>('')
-  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
   const [lastDrawTime, setLastDrawTime] = useState(performance.now())
 
-  useEffect(() => {
-    let mounted = true;
-
-    const updateCameraList = async () => {
-      try {
-        await navigator.mediaDevices.getUserMedia({ video: true }); // カメラのアクセス許可を要求
-        const devices = await navigator.mediaDevices.enumerateDevices()
-        const cameras = devices
-          .filter(device => device.kind === 'videoinput')
-          .map(device => ({
-            deviceId: device.deviceId,
-            label: device.label || `Camera ${device.deviceId.slice(0, 4)}`,
-            kind: device.kind as 'videoinput'
-          }))
-        
-        if (mounted) {
-          setAvailableCameras(cameras)
-          // カメラが検出された場合の初期選択
-          if (cameras.length > 0 && !selectedCamera) {
-            // カメラの種類を判別してデフォルト選択
-            const defaultCamera = cameras.find(camera => {
-              const label = camera.label.toLowerCase();
-              // モバイルデバイスの環境カメラを優先
-              return label.includes('back') || 
-                     label.includes('rear') || 
-                     label.includes('environment') ||
-                     label.includes('背面') ||
-                     label.includes('外側');
-            }) || cameras[0]; // 見つからない場合は最初のカメラ
-
-            setSelectedCamera(defaultCamera.deviceId)
-            setFacingMode('environment') // デフォルトは背面カメラ
-          }
-        }
-      } catch (err) {
-        console.error('Error listing cameras:', err)
-        if (mounted) {
-          setError('カメラの一覧取得に失敗しました。カメラへのアクセスを許可してください。')
-        }
-      }
-    }
-
-    updateCameraList()
-    // デバイスの変更を監視
-    navigator.mediaDevices.addEventListener('devicechange', updateCameraList)
-
-    return () => {
-      mounted = false
-      navigator.mediaDevices.removeEventListener('devicechange', updateCameraList)
-    }
-  }, [])
+  const {
+    availableCameras,
+    selectedCamera,
+    facingMode,
+    error,
+    hasCamera,
+    setSelectedCamera,
+    toggleCamera,
+    initializeCamera,
+    requestCameraPermission,
+    updateCameraList
+  } = useCameraDevices()
 
   useEffect(() => {
     if (selectedCamera) {
-      initializeCamera()
+      initializeCamera(videoRef, canvasRef)
     }
   }, [selectedCamera, facingMode])
-
-  const initializeCamera = async () => {
-    try {
-      // 既存のストリームを停止
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream
-        stream.getTracks().forEach(track => track.stop())
-      }
-
-      // カメラの制約を設定
-      const constraints: MediaStreamConstraints = {
-        video: {
-          deviceId: selectedCamera ? { exact: selectedCamera } : undefined,
-          facingMode: !selectedCamera ? facingMode : undefined, // デバイスIDが指定されていない場合のみfacingModeを使用
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30 }
-        }
-      }
-
-      // ストリームを取得
-      const stream = await navigator.mediaDevices.getUserMedia(constraints)
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        videoRef.current.onloadedmetadata = () => {
-          if (canvasRef.current && videoRef.current) {
-            // ビデオのアスペクト比を維持しながらCanvasのサイズを設定
-            const videoAspect = videoRef.current.videoWidth / videoRef.current.videoHeight
-            canvasRef.current.width = videoRef.current.videoWidth
-            canvasRef.current.height = videoRef.current.videoHeight
-          }
-        }
-        
-        setHasCamera(true)
-        setError('')
-
-        // デバイス情報をログに出力
-        const videoTrack = stream.getVideoTracks()[0]
-        console.log('Using camera:', videoTrack.label)
-      }
-    } catch (err) {
-      console.error('Error accessing camera:', err)
-      setHasCamera(false)
-      if (err instanceof Error) {
-        if (err.name === 'NotAllowedError' || err.name === 'SecurityError') {
-          setError('カメラの使用が許可されていません。ブラウザの設定で許可してください。')
-        } else if (err.name === 'NotFoundError') {
-          setError('カメラが見つかりません。デバイスにカメラが接続されているか確認してください。')
-        } else if (err.name === 'NotReadableError' || err.name === 'AbortError') {
-          setError('カメラにアクセスできません。他のアプリがカメラを使用している可能性があります。')
-        } else {
-          setError(`カメラの初期化に失敗しました: ${err.message}`)
-        }
-      }
-    }
-  }
-
-  const requestCameraPermission = async () => {
-    try {
-      await navigator.mediaDevices.getUserMedia({ video: true })
-      initializeCamera()
-    } catch (err) {
-      console.error('Error requesting camera permission:', err)
-      if (err instanceof Error) {
-        setError('カメラの使用許可が必要です。許可を求められたら「許可」をクリックしてください。')
-      }
-    }
-  }
-
-  const toggleCamera = async () => {
-    if (availableCameras.length < 2) {
-      setError('切り替え可能なカメラがありません')
-      return
-    }
-
-    // 現在のカメラのインデックスを取得
-    const currentIndex = availableCameras.findIndex(camera => camera.deviceId === selectedCamera)
-    // 次のカメラを選択（最後のカメラの場合は最初に戻る）
-    const nextIndex = (currentIndex + 1) % availableCameras.length
-    const nextCamera = availableCameras[nextIndex]
-
-    // カメラの種類を判別してfacingModeを更新
-    const label = nextCamera.label.toLowerCase()
-    const isBackCamera = label.includes('back') || label.includes('rear') || label.includes('environment') || label.includes('背面') || label.includes('外側')
-    setFacingMode(isBackCamera ? 'environment' : 'user')
-    setSelectedCamera(nextCamera.deviceId)
-  }
 
   const handleRecognize = async () => {
     if (!canvasRef.current || isAnalyzing) return
     setIsAnalyzing(true)
 
-    const canvas = canvasRef.current
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
     try {
-      // Canvas の画像をBlobに変換
+      const canvas = canvasRef.current
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve))
-      if (!blob) {
-        throw new Error('Failed to convert canvas to blob')
-      }
+      if (!blob) throw new Error('Failed to convert canvas to blob')
 
-      // FormDataの作成
       const formData = new FormData()
       formData.append('file', blob, 'capture.jpg')
 
-      // APIにPOSTリクエストを送信
       const response = await fetch(`${apiUrl}/analyze`, {
         method: 'POST',
         body: formData,
       })
 
-      if (!response.ok) {
-        throw new Error('Network response was not ok')
-      }
+      if (!response.ok) throw new Error('Network response was not ok')
 
       const data = await response.json()
       setAnalysis(data)
@@ -224,33 +62,40 @@ export const CameraFeed = () => {
     }
   }
 
-  const toggleAutoSend = () => {
-    if (!isAutoSending) {
-      setTimeRemaining(5) // 5秒間の認識を開始
-      setIsAutoSending(true)
-    } else {
-      setIsAutoSending(false)
-      setTimeRemaining(0)
+  const updateCanvas = (data: AnalysisResult) => {
+    const canvas = canvasRef.current
+    if (!canvas || !data.boxes) return
+    
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    if (videoRef.current) {
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height)
     }
+    
+    Object.entries(data.boxes).forEach(([label, box]) => {
+      drawBox3D(ctx, label, box, canvas.width, canvas.height)
+    })
+    
+    drawDebugInfo(ctx, data)
   }
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout | null = null
 
     if (isAutoSending) {
-      // 1秒ごとに実行
       intervalId = setInterval(() => {
         handleRecognize()
         setTimeRemaining(prev => {
           const newTime = prev - 1
           if (newTime <= 0) {
-            // 5秒経過したら停止
             setIsAutoSending(false)
             if (intervalId) clearInterval(intervalId)
           }
           return newTime
         })
-      }, 1000) // 1fps
+      }, 1000)
     }
 
     return () => {
@@ -266,7 +111,6 @@ export const CameraFeed = () => {
         const canvas = canvasRef.current
         const ctx = canvas.getContext('2d')
         if (ctx) {
-          // ビデオフレームをcanvasに描画
           ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height)
         }
       }
@@ -284,188 +128,16 @@ export const CameraFeed = () => {
     }
   }, [hasCamera])
 
-  const drawBox3D = (
-    ctx: CanvasRenderingContext2D,
-    label: string,
-    box: Box3D,
-    width: number,
-    height: number
-  ) => {
-    const { position, dimensions, rotation } = box
-    const [x, y, z] = position
-    const [w, h, d] = dimensions
-    const [roll, pitch, yaw] = rotation
-    
-    // 画面中心を基準に座標を変換
-    const screenX = width * (0.5 + x)
-    const screenY = height * (0.5 + y)
-    
-    // スケーリング係数（z座標に応じて変化）
-    const scale = 200 * (1 - z * 0.5)
-    
-    ctx.save()
-    
-    // 中心位置に移動
-    ctx.translate(screenX, screenY)
-    
-    // 回転を適用（ラジアンに変換）
-    ctx.rotate((yaw * Math.PI) / 180)
-    
-    // ボックスの描画
-    const boxWidth = w * scale
-    const boxHeight = h * scale
-    
-    ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)'
-    ctx.fillStyle = 'rgba(0, 255, 0, 0.1)'
-    ctx.lineWidth = 2
-    
-    // メインのボックスを描画
-    ctx.beginPath()
-    ctx.rect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight)
-    ctx.fill()
-    ctx.stroke()
-    
-    // 3D効果を表す線を描画
-    ctx.beginPath()
-    ctx.moveTo(-boxWidth / 2, -boxHeight / 2)
-    ctx.lineTo(-boxWidth / 2 + 20, -boxHeight / 2 - 20)
-    ctx.moveTo(boxWidth / 2, -boxHeight / 2)
-    ctx.lineTo(boxWidth / 2 + 20, -boxHeight / 2 - 20)
-    ctx.moveTo(-boxWidth / 2, boxHeight / 2)
-    ctx.lineTo(-boxWidth / 2 + 20, boxHeight / 2 - 20)
-    ctx.moveTo(boxWidth / 2, boxHeight / 2)
-    ctx.lineTo(boxWidth / 2 + 20, boxHeight / 2 - 20)
-    ctx.strokeStyle = 'rgba(0, 255, 0, 0.4)'
-    ctx.stroke()
-    
-    // ラベルの描画
-    ctx.font = '14px monospace'
-    const padding = 4
-    const metrics = ctx.measureText(label)
-    const labelWidth = metrics.width + padding * 2
-    
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
-    ctx.fillRect(-labelWidth / 2, -boxHeight / 2 - 24, labelWidth, 20)
-    
-    ctx.fillStyle = 'white'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(label, 0, -boxHeight / 2 - 14)
-    
-    // 信頼度インジケーター
-    const confidenceStr = `${(box.confidence * 100).toFixed(0)}%`
-    const confMetrics = ctx.measureText(confidenceStr)
-    const confWidth = confMetrics.width + padding * 2
-    
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
-    ctx.fillRect(-confWidth / 2, boxHeight / 2 + 4, confWidth, 20)
-    
-    ctx.fillStyle = 'white'
-    ctx.fillText(confidenceStr, 0, boxHeight / 2 + 14)
-    
-    ctx.restore()
-  }
-
-  const updateCanvas = (data: AnalysisResult) => {
-    const canvas = canvasRef.current
-    if (!canvas || !data.boxes) return
-  
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-  
-    const width = canvas.width
-    const height = canvas.height
-  
-    // キャンバスをクリアしてビデオフレームを描画
-    ctx.clearRect(0, 0, width, height)
-    if (videoRef.current) {
-      ctx.drawImage(videoRef.current, 0, 0, width, height)
-    }
-  
-    // 検出されたボックスを描画
-    Object.entries(data.boxes).forEach(([label, box]) => {
-      drawBox3D(ctx, label, box, width, height)
-    })
-  
-    // デバッグオーバーレイ
-    ctx.save()
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
-    ctx.fillRect(10, 10, 250, 160)
-  
-    ctx.font = '14px monospace'
-    ctx.fillStyle = 'white'
-    ctx.textAlign = 'left'
-    
-    const y_offset = 30
-    ctx.fillText(`Objects: ${Object.keys(data.boxes).length}`, 20, y_offset)
-    ctx.fillText(`State: ${data.state || 'UNKNOWN'}`, 20, y_offset + 25)
-    ctx.fillText(`Confidence: ${data.confidence ? (data.confidence * 100).toFixed(1) + '%' : 'N/A'}`, 20, y_offset + 50)
-    
-    if (data.position) {
-      const [x, y, z] = data.position
-      ctx.fillText(`Position: [${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}]`, 20, y_offset + 75)
-    }
-    
-    if (data.orientation) {
-      const [r, p, y] = data.orientation
-      ctx.fillText(`Rotation: [${r.toFixed(0)}°, ${p.toFixed(0)}°, ${y.toFixed(0)}°]`, 20, y_offset + 100)
-    }
-    
-    if (data.alarm) {
-      ctx.fillText(`Volume: ${(data.alarm.volume * 100).toFixed(0)}%`, 20, y_offset + 125)
-      ctx.fillText(`Frequency: ${data.alarm.frequency}Hz`, 20, y_offset + 150)
-    }
-  
-    ctx.restore()
-  }
-
-  const draw3DBox = (
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    pitch: number
-  ) => {
-    const canvas = ctx.canvas
-    const scale = 100
-    const centerX = canvas.width / 2 + x * scale
-    const centerY = canvas.height / 2 + y * scale
-
-    // Apply perspective transform based on pitch
-    const perspective = Math.cos(pitch * Math.PI / 180)
-    const boxWidth = width * scale * perspective
-    const boxHeight = height * scale
-
-    ctx.beginPath()
-    ctx.rect(
-      centerX - boxWidth / 2,
-      centerY - boxHeight / 2,
-      boxWidth,
-      boxHeight
-    )
-    ctx.stroke()
-  }
-
-  const getStateColor = (state: string): string => {
-    const colors = {
-      SLEEPING: '#4CAF50',
-      STRUGGLING: '#FFC107',
-      AWAKE: '#2196F3',
-      UNKNOWN: '#9E9E9E'
-    }
-    return colors[state as keyof typeof colors] || colors.UNKNOWN
-  }
-
   return (
     <div className="w-full max-w-lg mx-auto">
+      {/* Camera Controls */}
       <div className="mb-4 space-y-2">
         {error && (
           <div className="p-4 rounded-lg bg-red-50 border border-red-200">
             <p className="text-sm text-red-700">{error}</p>
             {error.includes('許可') && (
               <button
-                onClick={requestCameraPermission}
+                onClick={() => requestCameraPermission(videoRef, canvasRef)}
                 className="mt-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
               >
                 カメラの使用を許可する
@@ -473,6 +145,8 @@ export const CameraFeed = () => {
             )}
           </div>
         )}
+        
+        {/* Camera Selection */}
         <div className="flex items-center space-x-2">
           <select
             value={selectedCamera}
@@ -482,40 +156,28 @@ export const CameraFeed = () => {
             <option value="">カメラを選択</option>
             {availableCameras.map(camera => (
               <option key={camera.deviceId} value={camera.deviceId}>
-                {camera.label || `カメラ ${camera.deviceId.slice(0, 4)}`}
+                {camera.label}
               </option>
             ))}
           </select>
+          
           <button
             onClick={toggleCamera}
             className="px-4 py-2 text-sm font-medium text-white bg-brand-primary rounded-lg hover:bg-brand-primary/80"
           >
             {facingMode === 'user' ? '背面カメラ' : 'フロントカメラ'}
           </button>
+          
           <button
-            onClick={() => {
-              navigator.mediaDevices.enumerateDevices()
-                .then(devices => {
-                  const cameras = devices
-                    .filter(device => device.kind === 'videoinput')
-                    .map(device => ({
-                      deviceId: device.deviceId,
-                      label: device.label || `Camera ${device.deviceId.slice(0, 4)}`,
-                      kind: device.kind as 'videoinput'
-                    }))
-                  setAvailableCameras(cameras)
-                })
-            }}
+            onClick={updateCameraList}
             className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
           >
             更新
           </button>
         </div>
-        {error && (
-          <p className="text-sm text-red-500">{error}</p>
-        )}
       </div>
 
+      {/* Camera Feed and Analysis */}
       <div className="relative aspect-[4/3] bg-gradient-to-b from-brand-primary/5 to-brand-accent/5 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden">
         <video
           ref={videoRef}
@@ -532,19 +194,19 @@ export const CameraFeed = () => {
           style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
         />
 
+        {/* Control Panel */}
         <div className="absolute bottom-0 left-0 right-0 p-4 backdrop-blur-md bg-black/30">
           <div className="flex flex-col space-y-2">
             <div className="flex justify-between items-center">
-              <div className="space-x-2">
-                <button
-                  onClick={handleRecognize}
-                  disabled={isAnalyzing || !hasCamera}
-                  className="px-4 py-2 text-sm font-medium text-white bg-brand-primary rounded-lg hover:bg-brand-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {isAnalyzing ? '解析中...' : 'Geminiで解析'}
-                </button>
-              </div>
+              <button
+                onClick={handleRecognize}
+                disabled={isAnalyzing || !hasCamera}
+                className="px-4 py-2 text-sm font-medium text-white bg-brand-primary rounded-lg hover:bg-brand-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isAnalyzing ? '解析中...' : 'Geminiで解析'}
+              </button>
             </div>
+            
             {analysis && (
               <div className="flex justify-between items-center text-white">
                 <p className="text-sm font-medium">状態: {analysis.state}</p>
@@ -553,47 +215,6 @@ export const CameraFeed = () => {
                 </p>
               </div>
             )}
-          </div>
-        </div>
-      </div>
-
-      {/* カメラ選択ドロップダウン */}
-      <div className="mt-4">
-        <select
-          value={selectedCamera}
-          onChange={(e) => setSelectedCamera(e.target.value)}
-          className="w-full px-3 py-2 text-sm bg-white/90 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-primary/50"
-        >
-          <option value="">カメラを選択...</option>
-          {availableCameras.map(camera => (
-            <option key={camera.deviceId} value={camera.deviceId}>
-              {camera.label || `カメラ ${camera.deviceId.slice(0, 4)}`}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Mobile-optimized stats panels */}
-      <div className="mt-4 grid grid-cols-1 gap-4">
-        <div className="p-4 rounded-lg backdrop-blur-sm bg-white/90 border border-white/10">
-          <h3 className="text-gray-800 text-sm font-medium mb-2">System Status</h3>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className={`h-2 w-2 rounded-full ${hasCamera ? 'bg-green-400' : 'bg-red-400'}`} />
-                <span className="text-sm text-gray-600">Camera</span>
-              </div>
-              <span className="text-xs text-gray-500">{hasCamera ? 'Connected' : 'No Access'}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
-                <span className="text-sm text-gray-600">Analysis</span>
-              </div>
-              <span className="text-xs text-gray-500">
-                {isAnalyzing ? 'Processing' : 'Ready'}
-              </span>
-            </div>
           </div>
         </div>
       </div>
@@ -611,17 +232,9 @@ export const CameraFeed = () => {
             </div>
             <div>
               <span className="text-gray-500">Confidence:</span>
-              <span className="ml-2">{analysis?.confidence ? (analysis.confidence * 100).toFixed(1) + '%' : 'N/A'}</span>
-            </div>
-            <div>
-              <span className="text-gray-500">Position:</span>
-              <span className="ml-2">{analysis?.position ? 
-                `[${analysis.position.map(v => v.toFixed(2)).join(', ')}]` : 'N/A'}</span>
-            </div>
-            <div>
-              <span className="text-gray-500">Orientation:</span>
-              <span className="ml-2">{analysis?.orientation ? 
-                `[${analysis.orientation.map(v => v.toFixed(1)).join('°, ')}°]` : 'N/A'}</span>
+              <span className="ml-2">
+                {analysis?.confidence ? (analysis.confidence * 100).toFixed(1) + '%' : 'N/A'}
+              </span>
             </div>
             {analysis?.alarm && (
               <>

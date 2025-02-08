@@ -54,60 +54,54 @@ class GeminiAPI:
                 - width,height,depth: dimensions normalized to [0, 1]
                 - roll,pitch,yaw: rotation in degrees [-180, 180]
 
-                Example output format:
-                [
-                    {"label": "person", "box_3d": [0,0,0, 0.5,1.7,0.3, 0,0,0]},
-                    {"label": "chair", "box_3d": [0.5,0,0.3, 0.4,0.8,0.4, 0,0,45]}
-                ]
-
-                Focus on:
-                1. Person detection (highest priority)
-                2. Furniture and large objects
-                3. Small objects on surfaces
+                Important objects to detect:
+                - keyboard, mouse, monitor (indicating awake state)
+                - bed, pillow, stuffed animals (indicating sleep state)
+                - people and their pose
                 """
             ])
-
+            
             # レスポンスのデバッグ出力
             logger.info(f"Raw Gemini response text: {response.text}")
             
             try:
-                # テキストからJSONを抽出（マークダウンやプレーンテキストも処理）
+                # テキストからJSONを抽出
                 text = response.text.strip()
-                json_pattern = r'\[\s*\{.*?\}\s*\]'  # より柔軟なJSONアレイのパターン
+                json_pattern = r'\[\s*\{.*?\}\s*\]'
                 json_match = re.search(json_pattern, text, re.DOTALL)
                 
                 if json_match:
                     json_str = json_match.group(0)
-                    logger.info(f"Extracted JSON array: {json_str}")
-                    boxes_array = json.loads(json_str)
+                    boxes_list = json.loads(json_str)
                     
-                    # 結果を変換してスケーリングを適用
-                    boxes = {}
-                    for item in boxes_array:
-                        if 'label' in item and 'box_3d' in item:
-                            label = item['label']
-                            box_3d = item['box_3d']
-                            if len(box_3d) == 9:  # x,y,z, w,h,d, roll,pitch,yaw
-                                # 位置を[-1,1]から[0,1]に正規化
-                                pos = [(v + 1) / 2 for v in box_3d[:3]]
-                                # サイズは既に[0,1]で正規化済み
-                                dim = box_3d[3:6]
-                                # 角度は[-180,180]のまま
-                                rot = box_3d[6:9]
-                                
-                                boxes[label] = pos + dim + rot + [0.8]  # confidence追加
+                    # 3Dボックスを標準化された形式に変換
+                    processed_boxes = {}
+                    for box in boxes_list:
+                        label = box["label"]
+                        box_3d = box["box_3d"]
+                        
+                        # 座標を[0,1]範囲に正規化
+                        x, y, z = [(v + 1) / 2 for v in box_3d[:3]]
+                        w, h, d = box_3d[3:6]
+                        roll, pitch, yaw = box_3d[6:9]
+                        
+                        # 固定の信頼度スコアを追加 (実際のモデルからの信頼度が利用可能になれば更新)
+                        confidence = 0.8
+                        
+                        processed_boxes[label] = [x, y, z, w, h, d, roll, pitch, yaw, confidence]
                     
-                    logger.info(f"Processed boxes: {boxes}")
-                    return boxes
+                    logger.info(f"Processed boxes: {processed_boxes}")
+                    return processed_boxes
+                    
                 else:
                     logger.error("No valid JSON array found in response")
-                    return {"person": [0.5, 0.5, 0.5, 0.5, 1.7, 0.3, 0, 0, 0, 0.5]}
+                    return {}
 
             except json.JSONDecodeError as e:
                 logger.error(f"JSON parse error: {e}")
                 logger.error(f"Problematic text: {text}")
-                return {"person": [0.5, 0.5, 0.5, 0.5, 1.7, 0.3, 0, 0, 0, 0.5]}
+                return {}
 
         except Exception as e:
             logger.error(f"Gemini API error: {e}")
-            return {"person": [0.5, 0.5, 0.5, 0.5, 1.7, 0.3, 0, 0, 0, 0.5]}
+            return {}
