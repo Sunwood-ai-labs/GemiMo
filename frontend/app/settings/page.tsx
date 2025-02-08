@@ -14,6 +14,9 @@ export default function SettingsPage() {
   const [currentModel, setCurrentModel] = useState<typeof MODEL_OPTIONS[number]>("gemini-2.0-flash")
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState({ type: '', text: '' })
+  const [preferredCameraId, setPreferredCameraId] = useState('')
+  const [preferredFacingMode, setPreferredFacingMode] = useState<'user' | 'environment'>('environment')
+  const [availableCameras, setAvailableCameras] = useState<Array<{ deviceId: string; label: string }>>([])
   const router = useRouter()
 
   useEffect(() => {
@@ -31,12 +34,40 @@ export default function SettingsPage() {
       .catch(err => {
         setMessage({ type: 'error', text: 'Failed to load settings' })
       })
+
+    // Load camera settings from localStorage
+    const savedCameraId = localStorage.getItem('preferredCameraId')
+    const savedFacingMode = localStorage.getItem('preferredFacingMode')
+    if (savedCameraId) setPreferredCameraId(savedCameraId)
+    if (savedFacingMode) setPreferredFacingMode(savedFacingMode as 'user' | 'environment')
+
+    // List available cameras
+    const listCameras = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const cameras = devices
+          .filter(device => device.kind === 'videoinput')
+          .map(device => ({
+            deviceId: device.deviceId,
+            label: device.label || `Camera ${device.deviceId.slice(0, 4)}`
+          }))
+        setAvailableCameras(cameras)
+      } catch (err) {
+        console.error('Error listing cameras:', err)
+      }
+    }
+
+    listCameras()
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSaving(true)
     try {
+      // Save camera preferences to localStorage
+      localStorage.setItem('preferredCameraId', preferredCameraId)
+      localStorage.setItem('preferredFacingMode', preferredFacingMode)
+
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: {
@@ -79,6 +110,58 @@ export default function SettingsPage() {
       </div>
       
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Camera Settings Section */}
+        <div className="space-y-4">
+          <h2 className="text-lg font-medium text-gray-800">カメラ設定</h2>
+          
+          <div>
+            <label htmlFor="camera" className="block text-sm font-medium text-gray-700 mb-2">
+              デフォルトカメラ
+            </label>
+            <select
+              id="camera"
+              value={preferredCameraId}
+              onChange={(e) => setPreferredCameraId(e.target.value)}
+              className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-brand-primary/50 focus:border-transparent text-sm"
+            >
+              <option value="">自動選択</option>
+              {availableCameras.map((camera) => (
+                <option key={camera.deviceId} value={camera.deviceId}>
+                  {camera.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              優先カメラ方向
+            </label>
+            <div className="flex items-center space-x-4">
+              <label className="inline-flex items-center">
+                <input
+                  type="radio"
+                  value="environment"
+                  checked={preferredFacingMode === 'environment'}
+                  onChange={(e) => setPreferredFacingMode(e.target.value as 'environment')}
+                  className="form-radio text-brand-primary"
+                />
+                <span className="ml-2 text-sm text-gray-700">背面カメラ</span>
+              </label>
+              <label className="inline-flex items-center">
+                <input
+                  type="radio"
+                  value="user"
+                  checked={preferredFacingMode === 'user'}
+                  onChange={(e) => setPreferredFacingMode(e.target.value as 'user')}
+                  className="form-radio text-brand-primary"
+                />
+                <span className="ml-2 text-sm text-gray-700">フロントカメラ</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
         <div className="space-y-4">
           <div>
             <label htmlFor="model" className="block text-sm font-medium text-gray-700 mb-2">
@@ -135,7 +218,7 @@ export default function SettingsPage() {
             disabled={isSaving}
             className="w-full sm:w-auto px-6 py-2 rounded-lg bg-brand-primary hover:bg-brand-primary/80 text-white transition-colors disabled:opacity-50 text-sm font-medium"
           >
-            {isSaving ? 'Saving...' : 'Save Settings'}
+            {isSaving ? '保存中...' : '設定を保存'}
           </button>
         </div>
       </form>

@@ -20,6 +20,12 @@ interface AnalysisResult {
   }
 }
 
+interface CameraDeviceInfo {
+  deviceId: string
+  label: string
+  kind: 'videoinput'
+}
+
 export const CameraFeed = () => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -28,34 +34,74 @@ export const CameraFeed = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isAutoSending, setIsAutoSending] = useState(false)
   const [timeRemaining, setTimeRemaining] = useState<number>(0)
+  const [availableCameras, setAvailableCameras] = useState<CameraDeviceInfo[]>([])
+  const [selectedCamera, setSelectedCamera] = useState<string>('')
+  const [error, setError] = useState<string>('')
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
 
   useEffect(() => {
-    initializeCamera()
-    return () => {
+    // カメラデバイスの一覧を取得
+    const listCameras = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const cameras = devices
+          .filter(device => device.kind === 'videoinput')
+          .map(device => ({
+            deviceId: device.deviceId,
+            label: device.label || `Camera ${device.deviceId.slice(0, 4)}`,
+            kind: device.kind as 'videoinput'
+          }))
+        setAvailableCameras(cameras)
+        // デフォルトで最初のカメラを選択
+        if (cameras.length > 0 && !selectedCamera) {
+          setSelectedCamera(cameras[0].deviceId)
+        }
+      } catch (err) {
+        console.error('Error listing cameras:', err)
+        setError('カメラの一覧取得に失敗しました')
+      }
+    }
+
+    listCameras()
+  }, [])
+
+  useEffect(() => {
+    if (selectedCamera) {
+      initializeCamera()
+    }
+  }, [selectedCamera, facingMode])
+
+  const initializeCamera = async () => {
+    try {
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream
         stream.getTracks().forEach(track => track.stop())
       }
-    }
-  }, [])
 
-  const initializeCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: { ideal: 'environment' }, // Prefer back camera on mobile
+      const constraints: MediaStreamConstraints = {
+        video: {
+          deviceId: selectedCamera ? { exact: selectedCamera } : undefined,
+          facingMode: facingMode,
           width: { ideal: 1280 },
           height: { ideal: 720 }
-        } 
-      })
+        }
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints)
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         setHasCamera(true)
+        setError('')
       }
     } catch (err) {
       console.error('Error accessing camera:', err)
       setHasCamera(false)
+      setError('カメラへのアクセスに失敗しました')
     }
+  }
+
+  const toggleCamera = () => {
+    setFacingMode(prev => prev === 'user' ? 'environment' : 'user')
   }
 
   const handleRecognize = async () => {
@@ -209,6 +255,31 @@ export const CameraFeed = () => {
 
   return (
     <div className="w-full max-w-lg mx-auto">
+      <div className="mb-4 space-y-2">
+        <div className="flex items-center space-x-2">
+          <select
+            value={selectedCamera}
+            onChange={(e) => setSelectedCamera(e.target.value)}
+            className="block w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-primary/50"
+          >
+            {availableCameras.map(camera => (
+              <option key={camera.deviceId} value={camera.deviceId}>
+                {camera.label}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={toggleCamera}
+            className="px-4 py-2 text-sm font-medium text-white bg-brand-primary rounded-lg hover:bg-brand-primary/80"
+          >
+            {facingMode === 'user' ? '背面カメラ' : 'フロントカメラ'}
+          </button>
+        </div>
+        {error && (
+          <p className="text-sm text-red-500">{error}</p>
+        )}
+      </div>
+
       <div className="relative aspect-[4/3] bg-gradient-to-b from-brand-primary/5 to-brand-accent/5 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden">
         <video
           ref={videoRef}
