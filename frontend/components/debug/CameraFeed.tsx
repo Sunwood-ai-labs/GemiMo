@@ -278,10 +278,6 @@ export const CameraFeed = () => {
         </div>
       </div>
 
-      {/* Debug Information */}
-      <div className="mt-4">
-        <DebugInfo logData={debugLog} />
-      </div>
 
       {/* Debug Modal */}
       {isDebugModalOpen && (
