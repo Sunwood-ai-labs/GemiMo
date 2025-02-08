@@ -1,0 +1,19 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+}  debug: boolean  updateInterval: number  websocketUrl: stringexport interface GemiMoConfig {}  }    frequency: number    volume: number  alarm: {  orientation: [number, number, number]  position: [number, number, number]  confidence: number  state: SleepStateexport interface SleepData {export type SleepState = 'UNKNOWN' | 'SLEEPING' | 'STRUGGLING' | 'AWAKE'
