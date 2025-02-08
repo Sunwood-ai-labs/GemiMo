@@ -204,7 +204,7 @@ export const CameraFeed = () => {
       formData.append('file', blob, 'capture.jpg')
 
       // APIにPOSTリクエストを送信
-      const response = await fetch(`${apiUrl}/api/analyze`, {
+      const response = await fetch(`${apiUrl}/analyze`, {
         method: 'POST',
         body: formData,
       })

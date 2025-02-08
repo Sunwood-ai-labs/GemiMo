@@ -1,20 +1,16 @@
-import os
-import sys
-from pathlib import Path
-import uvicorn  # 追加
-
-# Add the project root directory to Python path
-root_dir = Path(__file__).parent.parent
-sys.path.append(str(root_dir))
-
+import uvicorn
 from fastapi import FastAPI, WebSocket, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from PIL import Image
 import io
+import sys
 import json
+from pathlib import Path
 
-from backend.core.gemimo import GemiMo
+# パスの設定を修正
+sys.path.append(str(Path(__file__).parent))
+from core.gemimo import GemiMo
 
 app = FastAPI(title="GemiMo API")
 
@@ -37,9 +33,17 @@ async def analyze_image(file: UploadFile = File(...)):
     """
     try:
         contents = await file.read()
+        image = Image.open(io.BytesIO(contents))
         gemimo = GemiMo()
-        result = await gemimo.handle_message(contents)
-        return result
+        result = await gemimo.process_frame(image)
+        return {
+            "state": result.state.value,
+            "confidence": result.confidence,
+            "position": result.position,
+            "orientation": result.orientation,
+            "timestamp": result.timestamp,
+            "boxes": result.boxes
+        }
     except Exception as e:
         logger.error(f"Error processing image: {e}")
         return {"error": str(e)}
