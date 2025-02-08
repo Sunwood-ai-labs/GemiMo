@@ -1,6 +1,7 @@
 import './globals.css'
 import type { Metadata } from 'next'
 import { Poppins, Playfair_Display } from 'next/font/google'
+import Link from 'next/link'
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -30,10 +31,18 @@ export default function RootLayout({
           <nav className="border-b border-white/10 backdrop-blur-md bg-white/5">
             <div className="container mx-auto px-4 py-4">
               <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-display text-gray-800">GemiMo</h1>
-                <div className="flex items-center space-x-4">
-                  <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
-                  <span className="text-sm text-gray-600">System Active</span>
+                <Link href="/" className="text-2xl font-display text-gray-800">GemiMo</Link>
+                <div className="flex items-center space-x-6">
+                  <Link 
+                    href="/settings"
+                    className="text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                  >
+                    Settings
+                  </Link>
+                  <div className="flex items-center space-x-2">
+                    <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
+                    <span className="text-sm text-gray-600">System Active</span>
+                  </div>
                 </div>
               </div>
             </div>
