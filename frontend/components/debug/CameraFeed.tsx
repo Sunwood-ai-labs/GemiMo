@@ -44,6 +44,7 @@ export const CameraFeed = () => {
 
     const updateCameraList = async () => {
       try {
+        await navigator.mediaDevices.getUserMedia({ video: true }); // カメラのアクセス許可を要求
         const devices = await navigator.mediaDevices.enumerateDevices()
         const cameras = devices
           .filter(device => device.kind === 'videoinput')
@@ -55,27 +56,32 @@ export const CameraFeed = () => {
         
         if (mounted) {
           setAvailableCameras(cameras)
-          // 初回のみ、デフォルトカメラを選択
+          // カメラが検出された場合の初期選択
           if (cameras.length > 0 && !selectedCamera) {
-            // デフォルトではフロントカメラを優先
-            const frontCamera = cameras.find(camera => 
-              camera.label.toLowerCase().includes('front') || 
-              camera.label.toLowerCase().includes('フロント')
-            )
-            setSelectedCamera(frontCamera?.deviceId || cameras[0].deviceId)
+            // カメラの種類を判別してデフォルト選択
+            const defaultCamera = cameras.find(camera => {
+              const label = camera.label.toLowerCase();
+              // モバイルデバイスの環境カメラを優先
+              return label.includes('back') || 
+                     label.includes('rear') || 
+                     label.includes('environment') ||
+                     label.includes('背面') ||
+                     label.includes('外側');
+            }) || cameras[0]; // 見つからない場合は最初のカメラ
+
+            setSelectedCamera(defaultCamera.deviceId)
+            setFacingMode('environment') // デフォルトは背面カメラ
           }
         }
       } catch (err) {
         console.error('Error listing cameras:', err)
         if (mounted) {
-          setError('カメラの一覧取得に失敗しました')
+          setError('カメラの一覧取得に失敗しました。カメラへのアクセスを許可してください。')
         }
       }
     }
 
-    // 初回実行
     updateCameraList()
-
     // デバイスの変更を監視
     navigator.mediaDevices.addEventListener('devicechange', updateCameraList)
 
@@ -99,17 +105,11 @@ export const CameraFeed = () => {
         stream.getTracks().forEach(track => track.stop())
       }
 
-      // カメラの権限確認
-      const permission = await navigator.permissions.query({ name: 'camera' as PermissionName })
-      if (permission.state === 'denied') {
-        throw new Error('カメラへのアクセスが拒否されています。ブラウザの設定からカメラの使用を許可してください。')
-      }
-
       // カメラの制約を設定
       const constraints: MediaStreamConstraints = {
         video: {
           deviceId: selectedCamera ? { exact: selectedCamera } : undefined,
-          facingMode: selectedCamera ? undefined : facingMode,
+          facingMode: !selectedCamera ? facingMode : undefined, // デバイスIDが指定されていない場合のみfacingModeを使用
           width: { ideal: 1280 },
           height: { ideal: 720 },
           frameRate: { ideal: 30 }
@@ -133,9 +133,9 @@ export const CameraFeed = () => {
         setHasCamera(true)
         setError('')
 
-        // デバイス情報を更新
+        // デバイス情報をログに出力
         const videoTrack = stream.getVideoTracks()[0]
-        console.log('Using device:', videoTrack.label)
+        console.log('Using camera:', videoTrack.label)
       }
     } catch (err) {
       console.error('Error accessing camera:', err)
@@ -148,10 +148,8 @@ export const CameraFeed = () => {
         } else if (err.name === 'NotReadableError' || err.name === 'AbortError') {
           setError('カメラにアクセスできません。他のアプリがカメラを使用している可能性があります。')
         } else {
-          setError(`カメラへのアクセスに失敗しました: ${err.message}`)
+          setError(`カメラの初期化に失敗しました: ${err.message}`)
         }
-      } else {
-        setError('カメラへのアクセスに失敗しました。')
       }
     }
   }
@@ -168,8 +166,23 @@ export const CameraFeed = () => {
     }
   }
 
-  const toggleCamera = () => {
-    setFacingMode(prev => prev === 'user' ? 'environment' : 'user')
+  const toggleCamera = async () => {
+    if (availableCameras.length < 2) {
+      setError('切り替え可能なカメラがありません')
+      return
+    }
+
+    // 現在のカメラのインデックスを取得
+    const currentIndex = availableCameras.findIndex(camera => camera.deviceId === selectedCamera)
+    // 次のカメラを選択（最後のカメラの場合は最初に戻る）
+    const nextIndex = (currentIndex + 1) % availableCameras.length
+    const nextCamera = availableCameras[nextIndex]
+
+    // カメラの種類を判別してfacingModeを更新
+    const label = nextCamera.label.toLowerCase()
+    const isBackCamera = label.includes('back') || label.includes('rear') || label.includes('environment') || label.includes('背面') || label.includes('外側')
+    setFacingMode(isBackCamera ? 'environment' : 'user')
+    setSelectedCamera(nextCamera.deviceId)
   }
 
   const handleRecognize = async () => {
@@ -425,40 +438,46 @@ export const CameraFeed = () => {
         <div className="absolute bottom-0 left-0 right-0 p-4 backdrop-blur-md bg-black/30">
           <div className="flex flex-col space-y-2">
             <div className="flex justify-between items-center">
-              <div className="space-x-2">
+              <div className="flex items-center space-x-2">
                 <button
-                  onClick={handleRecognize}
-                  disabled={isAnalyzing || !hasCamera}
-                  className={`px-4 py-2 rounded-full text-sm ${
-                    isAnalyzing 
-                      ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-brand-primary hover:bg-brand-primary/80'
-                  } text-white font-medium transition-colors`}
+                  onClick={toggleCamera}
+                  disabled={availableCameras.length < 2}
+                  className="px-3 py-1.5 text-xs font-medium text-white bg-brand-primary/80 rounded-lg hover:bg-brand-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1"
                 >
-                  {isAnalyzing ? 'Analyzing...' : 'Recognize'}
-                </button>
-                <button
-                  onClick={toggleAutoSend}
-                  className={`px-4 py-2 rounded-full text-sm ${
-                    isAutoSending 
-                      ? 'bg-brand-accent text-gray-800' 
-                      : 'bg-gray-200 hover:bg-gray-300'
-                  } font-medium transition-colors`}
-                >
-                  {isAutoSending ? `停止 (${timeRemaining}秒)` : '自動認識 (5秒)'}
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                    <path d="M3.25 4A2.25 2.25 0 001 6.25v7.5A2.25 2.25 0 003.25 16h7.5A2.25 2.25 0 0013 13.75v-7.5A2.25 2.25 0 0010.75 4h-7.5zM19 4.75a.75.75 0 00-1.28-.53l-3 3a.75.75 0 00-.22.53v4.5c0 .199.079.39.22.53l3 3a.75.75 0 001.28-.53V4.75z" />
+                  </svg>
+                  <span>カメラ切替</span>
                 </button>
               </div>
+              <div className="text-xs text-white/80">
+                {availableCameras.find(camera => camera.deviceId === selectedCamera)?.label || 'カメラ未選択'}
+              </div>
             </div>
-            {analysis && (
-              <div className="flex justify-between items-center text-white">
-                <p className="text-sm font-medium">{analysis.state}</p>
-                <p className="text-xs opacity-80">
-                  Confidence: {(analysis.confidence * 100).toFixed(1)}%
-                </p>
+            
+            {error && (
+              <div className="px-3 py-2 rounded bg-red-500/20 border border-red-500/30">
+                <p className="text-xs text-white/90">{error}</p>
               </div>
             )}
           </div>
         </div>
+      </div>
+
+      {/* カメラ選択ドロップダウン */}
+      <div className="mt-4">
+        <select
+          value={selectedCamera}
+          onChange={(e) => setSelectedCamera(e.target.value)}
+          className="w-full px-3 py-2 text-sm bg-white/90 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-primary/50"
+        >
+          <option value="">カメラを選択...</option>
+          {availableCameras.map(camera => (
+            <option key={camera.deviceId} value={camera.deviceId}>
+              {camera.label || `カメラ ${camera.deviceId.slice(0, 4)}`}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Mobile-optimized stats panels */}
