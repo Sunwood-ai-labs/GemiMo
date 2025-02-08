@@ -78,6 +78,12 @@ export const CameraFeed = () => {
         stream.getTracks().forEach(track => track.stop())
       }
 
+      // まずカメラの権限を要求
+      const permission = await navigator.permissions.query({ name: 'camera' as PermissionName })
+      if (permission.state === 'denied') {
+        throw new Error('カメラへのアクセスが拒否されています。ブラウザの設定からカメラの使用を許可してください。')
+      }
+
       const constraints: MediaStreamConstraints = {
         video: {
           deviceId: selectedCamera ? { exact: selectedCamera } : undefined,
@@ -96,7 +102,31 @@ export const CameraFeed = () => {
     } catch (err) {
       console.error('Error accessing camera:', err)
       setHasCamera(false)
-      setError('カメラへのアクセスに失敗しました')
+      if (err instanceof Error) {
+        if (err.name === 'NotAllowedError' || err.name === 'SecurityError') {
+          setError('カメラの使用が許可されていません。ブラウザの設定で許可してください。')
+        } else if (err.name === 'NotFoundError') {
+          setError('カメラが見つかりません。デバイスにカメラが接続されているか確認してください。')
+        } else if (err.name === 'NotReadableError' || err.name === 'AbortError') {
+          setError('カメラにアクセスできません。他のアプリがカメラを使用している可能性があります。')
+        } else {
+          setError(`カメラへのアクセスに失敗しました: ${err.message}`)
+        }
+      } else {
+        setError('カメラへのアクセスに失敗しました。')
+      }
+    }
+  }
+
+  const requestCameraPermission = async () => {
+    try {
+      await navigator.mediaDevices.getUserMedia({ video: true })
+      initializeCamera()
+    } catch (err) {
+      console.error('Error requesting camera permission:', err)
+      if (err instanceof Error) {
+        setError('カメラの使用許可が必要です。許可を求められたら「許可」をクリックしてください。')
+      }
     }
   }
 
@@ -256,6 +286,19 @@ export const CameraFeed = () => {
   return (
     <div className="w-full max-w-lg mx-auto">
       <div className="mb-4 space-y-2">
+        {error && (
+          <div className="p-4 rounded-lg bg-red-50 border border-red-200">
+            <p className="text-sm text-red-700">{error}</p>
+            {error.includes('許可') && (
+              <button
+                onClick={requestCameraPermission}
+                className="mt-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
+              >
+                カメラの使用を許可する
+              </button>
+            )}
+          </div>
+        )}
         <div className="flex items-center space-x-2">
           <select
             value={selectedCamera}
