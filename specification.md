@@ -29,7 +29,7 @@
 - TypeScript + Next.js 14
 - ディレクトリ構成:
 ```
-src/
+frontend/
 ├── app/
 │   ├── page.tsx
 │   ├── layout.tsx
@@ -265,7 +265,7 @@ class SleepStateManager:
     def __init__(self):
         self.current_state = SleepState.SLEEPING
         self.state_history: List[SleepState] = []
-        self.movement_history: List[MovementData] = []
+        self.movement_history: List<MovementData] = []
         self.struggle_start_time: Optional[float] = None
         self.awake_start_time: Optional[float] = None
         
