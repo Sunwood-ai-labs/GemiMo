@@ -2,12 +2,13 @@ import { Box3D, AnalysisResult } from '@/lib/types/camera'
 
 export const getObjectColor = (label: string): string => {
   const colors: { [key: string]: string } = {
-    keyboard: '#00ff00',
-    mouse: '#ff0000',
-    'stuffed animal': '#0000ff',
-    default: '#ffffff'
+    keyboard: '#00FF00', // Green
+    mouse: '#FF0000',    // Red
+    'stuffed animal': '#4169E1', // Royal Blue
+    person: '#FFA500',   // Orange
+    default: '#FFFFFF'   // White
   }
-  return colors[label] || colors.default
+  return colors[label.toLowerCase()] || colors.default
 }
 
 export const drawBox3D = (
@@ -17,17 +18,17 @@ export const drawBox3D = (
   width: number,
   height: number
 ) => {
-  const { position, dimensions, rotation } = box
+  const { position, dimensions, rotation, confidence } = box
   const [x, y, z] = position
   const [w, h, d] = dimensions
   const [roll, pitch, yaw] = rotation
   
   // Convert normalized coordinates to screen coordinates
-  const screenX = width * (0.5 + x)
-  const screenY = height * (0.5 + y)
+  const screenX = width * x
+  const screenY = height * y
   
   // Scale based on Z position (perspective effect)
-  const scale = 200 * (1 - z * 0.5)
+  const scale = Math.max(0.2, 1 - z)
   
   ctx.save()
   
@@ -36,8 +37,8 @@ export const drawBox3D = (
   ctx.rotate((yaw * Math.PI) / 180)
   
   // Draw box
-  const boxWidth = w * scale
-  const boxHeight = h * scale
+  const boxWidth = w * width * scale
+  const boxHeight = h * height * scale
   
   // Box style
   const color = getObjectColor(label)
@@ -52,7 +53,7 @@ export const drawBox3D = (
   ctx.stroke()
   
   // Draw 3D perspective lines
-  const depthScale = d * 50 // Scale depth lines
+  const depthScale = d * 50 * scale
   ctx.beginPath()
   ctx.setLineDash([5, 5])
   ctx.moveTo(-boxWidth / 2, -boxHeight / 2)
@@ -66,13 +67,15 @@ export const drawBox3D = (
   ctx.stroke()
   ctx.setLineDash([])
   
-  // Draw label
-  ctx.font = '14px monospace'
+  // Draw label with confidence
+  ctx.font = '12px monospace'
   ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
-  ctx.fillRect(-boxWidth / 2, -boxHeight / 2 - 20, boxWidth, 20)
+  const labelText = `${label} (${Math.round(confidence * 100)}%)`
+  const textWidth = ctx.measureText(labelText).width
+  ctx.fillRect(-textWidth / 2 - 5, -boxHeight / 2 - 20, textWidth + 10, 20)
   ctx.fillStyle = 'white'
   ctx.textAlign = 'center'
-  ctx.fillText(`${label} (${Math.round(box.confidence * 100)}%)`, 0, -boxHeight / 2 - 5)
+  ctx.fillText(labelText, 0, -boxHeight / 2 - 5)
   
   ctx.restore()
 }
@@ -81,8 +84,8 @@ export const drawDebugInfo = (ctx: CanvasRenderingContext2D, data: AnalysisResul
   ctx.save()
   
   // Background for debug info
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
-  ctx.fillRect(10, 10, 300, 160)
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.8)'
+  ctx.fillRect(10, 10, 300, 180)
   
   // Text settings
   ctx.font = '14px monospace'
@@ -91,16 +94,20 @@ export const drawDebugInfo = (ctx: CanvasRenderingContext2D, data: AnalysisResul
   
   // Draw debug information
   const lines = [
-    `Objects: ${Object.keys(data.boxes || {}).length}`,
-    `State: ${data.state || 'UNKNOWN'}`,
-    `Confidence: ${data.confidence ? (data.confidence * 100).toFixed(1) + '%' : 'N/A'}`,
-    `Position: [${data.position?.map(v => v.toFixed(2)).join(', ') || 'N/A'}]`,
-    `Orientation: [${data.orientation?.map(v => v.toFixed(0) + '°').join(', ') || 'N/A'}]`,
-    `Alarm: ${data.alarm ? `Vol: ${(data.alarm.volume * 100).toFixed(0)}%, Freq: ${data.alarm.frequency}Hz` : 'N/A'}`
+    `State: ${data.state || 'UNKNOWN'} (${Math.round((data.confidence || 0) * 100)}%)`,
+    'Objects:',
+    ...Object.entries(data.boxes || {}).map(([label, box]) => 
+      `  - ${label}: ${Math.round(box.confidence * 100)}%`
+    ),
+    '',
+    'Alarm:',
+    data.alarm ? 
+      `  Vol: ${Math.round(data.alarm.volume * 100)}%, Freq: ${data.alarm.frequency}Hz` :
+      '  Inactive'
   ]
   
   lines.forEach((line, i) => {
-    ctx.fillText(line, 20, 35 + i * 25)
+    ctx.fillText(line, 20, 35 + i * 20)
   })
   
   ctx.restore()

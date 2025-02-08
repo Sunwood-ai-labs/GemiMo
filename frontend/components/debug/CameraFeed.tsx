@@ -64,21 +64,43 @@ export const CameraFeed = () => {
 
   const updateCanvas = (data: AnalysisResult) => {
     const canvas = canvasRef.current
-    if (!canvas || !data.boxes) return
+    const video = videoRef.current
+    if (!canvas || !video) return
     
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+
+    // Set canvas size to match video dimensions
+    canvas.width = video.videoWidth || 640
+    canvas.height = video.videoHeight || 480
     
+    // Draw original frame
     ctx.clearRect(0, 0, canvas.width, canvas.height)
-    if (videoRef.current) {
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height)
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    
+    // Get visualization canvas
+    const vizCanvas = document.getElementById('visualizationCanvas') as HTMLCanvasElement
+    if (!vizCanvas) return
+    
+    // Match visualization canvas size
+    vizCanvas.width = canvas.width
+    vizCanvas.height = canvas.height
+    const vizCtx = vizCanvas.getContext('2d')
+    if (!vizCtx) return
+    
+    // Draw base frame
+    vizCtx.clearRect(0, 0, vizCanvas.width, vizCanvas.height)
+    vizCtx.drawImage(video, 0, 0, vizCanvas.width, vizCanvas.height)
+    
+    // Draw detected objects on visualization canvas
+    if (data.boxes) {
+      Object.entries(data.boxes).forEach(([label, box]) => {
+        drawBox3D(vizCtx, label, box, vizCanvas.width, vizCanvas.height)
+      })
     }
     
-    Object.entries(data.boxes).forEach(([label, box]) => {
-      drawBox3D(ctx, label, box, canvas.width, canvas.height)
-    })
-    
-    drawDebugInfo(ctx, data)
+    // Draw debug info overlay on visualization canvas
+    drawDebugInfo(vizCtx, data)
   }
 
   useEffect(() => {
@@ -127,6 +149,12 @@ export const CameraFeed = () => {
       }
     }
   }, [hasCamera])
+
+  useEffect(() => {
+    if (analysis) {
+      updateCanvas(analysis)
+    }
+  }, [analysis])
 
   return (
     <div className="w-full max-w-lg mx-auto">
@@ -196,25 +224,23 @@ export const CameraFeed = () => {
 
         {/* Control Panel */}
         <div className="absolute bottom-0 left-0 right-0 p-4 backdrop-blur-md bg-black/30">
-          <div className="flex flex-col space-y-2">
-            <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center">
+            <button
+              onClick={handleRecognize}
+              disabled={isAnalyzing}
+              className="px-4 py-2 bg-brand-primary text-white rounded-lg disabled:opacity-50"
+            >
+              {isAnalyzing ? 'Analyzing...' : 'Analyze Frame'}
+            </button>
+            
+            <div className="flex items-center gap-2">
               <button
-                onClick={handleRecognize}
-                disabled={isAnalyzing || !hasCamera}
-                className="px-4 py-2 text-sm font-medium text-white bg-brand-primary rounded-lg hover:bg-brand-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                onClick={() => toggleCamera()}
+                className="p-2 bg-brand-secondary/20 text-white rounded-lg"
               >
-                {isAnalyzing ? '解析中...' : 'Geminiで解析'}
+                Switch Camera
               </button>
             </div>
-            
-            {analysis && (
-              <div className="flex justify-between items-center text-white">
-                <p className="text-sm font-medium">状態: {analysis.state}</p>
-                <p className="text-sm font-medium">
-                  信頼度: {(analysis.confidence * 100).toFixed(1)}%
-                </p>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -222,6 +248,33 @@ export const CameraFeed = () => {
       {/* Debug View */}
       <div className="mt-4 p-4 rounded-lg backdrop-blur-sm bg-white/90 border border-white/10">
         <h3 className="text-sm font-medium text-gray-800 mb-2">Debug View</h3>
+        
+        {/* Debug Canvases */}
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          {/* Input Image */}
+          <div className="relative aspect-video">
+            <canvas 
+              ref={canvasRef}
+              className="absolute inset-0 w-full h-full object-contain bg-black/10 rounded-lg"
+            />
+            <div className="absolute top-2 left-2 text-xs font-mono text-white bg-black/50 px-2 py-1 rounded">
+              Input
+            </div>
+          </div>
+          
+          {/* Visualization */}
+          <div className="relative aspect-video">
+            <canvas 
+              id="visualizationCanvas"
+              className="absolute inset-0 w-full h-full object-contain bg-black/10 rounded-lg"
+            />
+            <div className="absolute top-2 left-2 text-xs font-mono text-white bg-black/50 px-2 py-1 rounded">
+              Visualization
+            </div>
+          </div>
+        </div>
+
+        {/* Debug Info */}
         <div className="space-y-2 text-sm font-mono">
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -240,7 +293,7 @@ export const CameraFeed = () => {
               <>
                 <div>
                   <span className="text-gray-500">Volume:</span>
-                  <span className="ml-2">{analysis.alarm.volume.toFixed(2)}</span>
+                  <span className="ml-2">{(analysis.alarm.volume * 100).toFixed(0)}%</span>
                 </div>
                 <div>
                   <span className="text-gray-500">Frequency:</span>
@@ -249,6 +302,22 @@ export const CameraFeed = () => {
               </>
             )}
           </div>
+          
+          {/* Object List */}
+          {analysis?.boxes && Object.keys(analysis.boxes).length > 0 && (
+            <div className="mt-4">
+              <h4 className="text-xs font-medium text-gray-600 mb-2">Detected Objects:</h4>
+              <div className="space-y-1">
+                {Object.entries(analysis.boxes).map(([label, box]) => (
+                  <div key={label} className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getObjectColor(label) }} />
+                    <span>{label}</span>
+                    <span className="text-gray-500">({Math.round(box.confidence * 100)}%)</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
