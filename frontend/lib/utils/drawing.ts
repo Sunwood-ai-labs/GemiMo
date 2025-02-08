@@ -27,8 +27,8 @@ export const drawBox3D = (
   const screenX = width * x
   const screenY = height * y
   
-  // Scale based on Z position (perspective effect)
-  const scale = Math.max(0.2, 1 - z)
+  // より大きなスケール係数を使用
+  const scale = Math.max(0.3, 1 - z * 0.8)
   
   ctx.save()
   
@@ -36,15 +36,15 @@ export const drawBox3D = (
   ctx.translate(screenX, screenY)
   ctx.rotate((yaw * Math.PI) / 180)
   
-  // Draw box
-  const boxWidth = w * width * scale
-  const boxHeight = h * height * scale
+  // Draw box with larger dimensions
+  const boxWidth = w * width * scale * 1.2
+  const boxHeight = h * height * scale * 1.2
   
-  // Box style
+  // Box style with thicker lines
   const color = getObjectColor(label)
   ctx.strokeStyle = color
-  ctx.fillStyle = `${color}33` // 20% opacity
-  ctx.lineWidth = 2
+  ctx.fillStyle = `${color}33`
+  ctx.lineWidth = 3
   
   // Draw main rectangle
   ctx.beginPath()
@@ -52,7 +52,7 @@ export const drawBox3D = (
   ctx.fill()
   ctx.stroke()
   
-  // Draw 3D perspective lines
+  // Draw 3D perspective lines with dashed style
   const depthScale = d * 50 * scale
   ctx.beginPath()
   ctx.setLineDash([5, 5])
@@ -68,11 +68,11 @@ export const drawBox3D = (
   ctx.setLineDash([])
   
   // Draw label with confidence
-  ctx.font = '12px monospace'
+  ctx.font = '16px monospace'
   ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
   const labelText = `${label} (${Math.round(confidence * 100)}%)`
   const textWidth = ctx.measureText(labelText).width
-  ctx.fillRect(-textWidth / 2 - 5, -boxHeight / 2 - 20, textWidth + 10, 20)
+  ctx.fillRect(-textWidth / 2 - 5, -boxHeight / 2 - 25, textWidth + 10, 25)
   ctx.fillStyle = 'white'
   ctx.textAlign = 'center'
   ctx.fillText(labelText, 0, -boxHeight / 2 - 5)
@@ -80,43 +80,10 @@ export const drawBox3D = (
   ctx.restore()
 }
 
-export const drawDebugInfo = (ctx: CanvasRenderingContext2D, data: AnalysisResult) => {
-  ctx.save()
-  
-  // Background for debug info
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.8)'
-  ctx.fillRect(10, 10, 300, 180)
-  
-  // Text settings
-  ctx.font = '14px monospace'
-  ctx.fillStyle = 'white'
-  ctx.textAlign = 'left'
-  
-  // Draw debug information
-  const lines = [
-    `State: ${data.state || 'UNKNOWN'} (${Math.round((data.confidence || 0) * 100)}%)`,
-    'Objects:',
-    ...Object.entries(data.boxes || {}).map(([label, box]) => 
-      `  - ${label}: ${Math.round(box.confidence * 100)}%`
-    ),
-    '',
-    'Alarm:',
-    data.alarm ? 
-      `  Vol: ${Math.round(data.alarm.volume * 100)}%, Freq: ${data.alarm.frequency}Hz` :
-      '  Inactive'
-  ]
-  
-  lines.forEach((line, i) => {
-    ctx.fillText(line, 20, 35 + i * 20)
-  })
-  
-  ctx.restore()
-}
-
 export const getStateColor = (state: string): string => {
   const colors = {
     SLEEPING: '#4CAF50',
-    STRUGGLING: '#FFC107',
+    STRUGGLING: '#FFC107', 
     AWAKE: '#2196F3',
     UNKNOWN: '#9E9E9E'
   }

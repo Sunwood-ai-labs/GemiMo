@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { AnalysisResult } from '@/lib/types/camera'
 import { drawBox3D, drawDebugInfo, getStateColor } from '@/lib/utils/drawing'
 import { useCameraDevices } from '@/lib/hooks/useCameraDevices'
+import { DebugCanvas } from './DebugCanvas'
+import { DebugInfo } from './DebugInfo'
 
 export const CameraFeed = () => {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -138,7 +140,7 @@ export const CameraFeed = () => {
   }
 
   return (
-    <div className="w-full max-w-lg mx-auto">
+    <div className="w-full mx-auto">
       {/* Camera Controls */}
       <div className="mb-4 space-y-2">
         {error && (
@@ -187,7 +189,7 @@ export const CameraFeed = () => {
       </div>
 
       {/* Camera Feed */}
-      <div className="relative aspect-[4/3] bg-gradient-to-b from-brand-primary/5 to-brand-accent/5 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden">
+      <div className="relative aspect-video bg-gradient-to-b from-brand-primary/5 to-brand-accent/5 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden">
         <video
           ref={videoRef}
           autoPlay
@@ -252,16 +254,21 @@ export const CameraFeed = () => {
       </div>
 
       {/* Debug View */}
-      <div className="mt-4 p-4 rounded-lg backdrop-blur-sm bg-white/90 border border-white/10">
-        <h3 className="text-sm font-medium text-gray-800 mb-2">Debug View</h3>
-        <div 
-          className="cursor-pointer hover:opacity-90 transition-opacity"
-          onClick={() => setIsDebugModalOpen(true)}
-        >
-          <canvas 
-            ref={debugCanvasRef}
-            className="w-full h-64 object-contain rounded-lg"
+      <div className="mt-8 p-6 rounded-lg backdrop-blur-sm bg-white/90 border border-white/10">
+        <h3 className="text-lg font-medium text-gray-800 mb-4">Debug View</h3>
+        <div className="space-y-6">
+          <DebugCanvas 
+            videoRef={videoRef}
+            analysis={analysis}
+            facingMode={facingMode}
+            capturedImage={capturedImage}
           />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h4 className="text-sm font-medium text-gray-600 mb-2">Analysis Results</h4>
+              <DebugInfo analysis={analysis} />
+            </div>
+          </div>
         </div>
       </div>
 

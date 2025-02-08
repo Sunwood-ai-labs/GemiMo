@@ -1,97 +1,81 @@
 import { useEffect, useRef } from 'react'
 import { AnalysisResult } from '@/lib/types/camera'
-import { drawBox3D, drawDebugInfo } from '@/lib/utils/drawing'
+import { drawBox3D } from '@/lib/utils/drawing'
 
 interface DebugCanvasProps {
   videoRef: React.RefObject<HTMLVideoElement>
   analysis: AnalysisResult | null
   facingMode: 'user' | 'environment'
+  capturedImage: string | null
 }
 
-export const DebugCanvas = ({ videoRef, analysis, facingMode }: DebugCanvasProps) => {
+export const DebugCanvas = ({ videoRef, analysis, facingMode, capturedImage }: DebugCanvasProps) => {
   const inputCanvasRef = useRef<HTMLCanvasElement>(null)
   const vizCanvasRef = useRef<HTMLCanvasElement>(null)
 
-  // Add video metadata loaded handler
   useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
+    if (!capturedImage) return
 
-    const handleMetadata = () => {
-      const inputCanvas = inputCanvasRef.current
-      const vizCanvas = vizCanvasRef.current
-      if (!inputCanvas || !vizCanvas) return
-
-      // Set canvas dimensions
-      const videoWidth = video.videoWidth || 640
-      const videoHeight = video.videoHeight || 480
-      inputCanvas.width = videoWidth
-      inputCanvas.height = videoHeight
-      vizCanvas.width = videoWidth
-      vizCanvas.height = videoHeight
-    }
-
-    video.addEventListener('loadedmetadata', handleMetadata)
-    return () => {
-      video.removeEventListener('loadedmetadata', handleMetadata)
-    }
-  }, [videoRef])
-
-  const updateCanvases = () => {
-    const video = videoRef.current
     const inputCanvas = inputCanvasRef.current
     const vizCanvas = vizCanvasRef.current
-    if (!video || !inputCanvas || !vizCanvas) return
+    if (!inputCanvas || !vizCanvas) return
 
-    // Get canvas contexts
-    const inputCtx = inputCanvas.getContext('2d')
-    const vizCtx = vizCanvas.getContext('2d')
-    if (!inputCtx || !vizCtx) return
+    const img = new Image()
+    img.onload = () => {
+      // コンテナの幅を取得（パディングを考慮）
+      const containerWidth = Math.min(
+        window.innerWidth - 64, // 左右32pxずつのパディング
+        1920 // 最大幅
+      )
+      const targetWidth = (containerWidth / 2) - 16 // 2カラムの場合、各キャンバスの幅
+      
+      // 画像のアスペクト比を維持しながらキャンバスサイズを計算
+      const aspectRatio = img.height / img.width
+      const canvasWidth = targetWidth
+      const canvasHeight = targetWidth * aspectRatio
 
-    // Update canvases only if video is playing
-    if (video.readyState === video.HAVE_ENOUGH_DATA) {
-      // Draw input frame
-      inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height)
-      inputCtx.drawImage(video, 0, 0, inputCanvas.width, inputCanvas.height)
+      // 入力画像用キャンバス
+      inputCanvas.width = canvasWidth
+      inputCanvas.height = canvasHeight
+      const inputCtx = inputCanvas.getContext('2d')
+      if (inputCtx) {
+        inputCtx.drawImage(img, 0, 0, canvasWidth, canvasHeight)
+      }
 
-      // Draw visualization frame
-      vizCtx.clearRect(0, 0, vizCanvas.width, vizCanvas.height)
-      vizCtx.drawImage(video, 0, 0, vizCanvas.width, vizCanvas.height)
-
-      // Draw analysis results if available
-      if (analysis?.boxes) {
-        Object.entries(analysis.boxes).forEach(([label, box]) => {
-          drawBox3D(vizCtx, label, box, vizCanvas.width, vizCanvas.height)
-        })
-        drawDebugInfo(vizCtx, analysis)
+      // 可視化用キャンバス
+      vizCanvas.width = canvasWidth
+      vizCanvas.height = canvasHeight
+      const vizCtx = vizCanvas.getContext('2d')
+      if (vizCtx) {
+        // キャプチャした画像を描画
+        vizCtx.drawImage(img, 0, 0, canvasWidth, canvasHeight)
+        
+        // 3Dボックスを太く、より目立つように描画
+        if (analysis?.boxes) {
+          Object.entries(analysis.boxes).forEach(([label, box]) => {
+            drawBox3D(vizCtx, label, box, canvasWidth, canvasHeight)
+          })
+        }
       }
     }
-  }
+    img.src = capturedImage
 
-  useEffect(() => {
-    let animationFrameId: number
-
-    const animate = () => {
-      updateCanvases()
-      animationFrameId = requestAnimationFrame(animate)
+    // ウィンドウリサイズ時にキャンバスサイズを再計算
+    const handleResize = () => {
+      if (img.complete) img.onload?.()
     }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
 
-    animate()
-
-    return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId)
-      }
-    }
-  }, [analysis, videoRef])
+  }, [capturedImage, analysis, facingMode])
 
   return (
-    <div className="grid grid-cols-2 gap-4 mb-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
       {/* Input Image */}
-      <div className="relative aspect-video group">
+      <div className="relative aspect-[4/3] w-full">
         <canvas 
           ref={inputCanvasRef}
-          className="absolute inset-0 w-full h-full object-contain bg-black/10 rounded-lg transition-transform duration-300 group-hover:scale-150 group-hover:z-10"
+          className="w-full h-full object-cover"
           style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
         />
         <div className="absolute top-2 left-2 text-xs font-mono text-white bg-black/50 px-2 py-1 rounded">
@@ -100,10 +84,10 @@ export const DebugCanvas = ({ videoRef, analysis, facingMode }: DebugCanvasProps
       </div>
       
       {/* Visualization */}
-      <div className="relative aspect-video group">
+      <div className="relative aspect-[4/3] w-full">
         <canvas 
           ref={vizCanvasRef}
-          className="absolute inset-0 w-full h-full object-contain bg-black/10 rounded-lg transition-transform duration-300 group-hover:scale-150 group-hover:z-10"
+          className="w-full h-full object-cover"
           style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
         />
         <div className="absolute top-2 left-2 text-xs font-mono text-white bg-black/50 px-2 py-1 rounded">
