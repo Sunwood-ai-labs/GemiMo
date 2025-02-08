@@ -1,15 +1,20 @@
-import uvicorn
+import os
+import sys
+from pathlib import Path
+import uvicorn  # 追加
+
+# Add the project root directory to Python path
+root_dir = Path(__file__).parent.parent
+sys.path.append(str(root_dir))
+
 from fastapi import FastAPI, WebSocket, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from PIL import Image
 import io
-import sys
 import json
-from pathlib import Path
 
-sys.path.append(str(Path(__file__).parent))
-from core.gemimo import GemiMo
+from backend.core.gemimo import GemiMo
 
 app = FastAPI(title="GemiMo API")
 

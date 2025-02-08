@@ -1,4 +1,4 @@
-from backend.core.types import SleepState, SleepData
+from .types import SleepState, SleepData
 from typing import Dict
 
 class AlarmController:

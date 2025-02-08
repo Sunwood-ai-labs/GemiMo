@@ -438,26 +438,22 @@ export const CameraFeed = () => {
         <div className="absolute bottom-0 left-0 right-0 p-4 backdrop-blur-md bg-black/30">
           <div className="flex flex-col space-y-2">
             <div className="flex justify-between items-center">
-              <div className="flex items-center space-x-2">
+              <div className="space-x-2">
                 <button
-                  onClick={toggleCamera}
-                  disabled={availableCameras.length < 2}
-                  className="px-3 py-1.5 text-xs font-medium text-white bg-brand-primary/80 rounded-lg hover:bg-brand-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1"
+                  onClick={handleRecognize}
+                  disabled={isAnalyzing || !hasCamera}
+                  className="px-4 py-2 text-sm font-medium text-white bg-brand-primary rounded-lg hover:bg-brand-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                    <path d="M3.25 4A2.25 2.25 0 001 6.25v7.5A2.25 2.25 0 003.25 16h7.5A2.25 2.25 0 0013 13.75v-7.5A2.25 2.25 0 0010.75 4h-7.5zM19 4.75a.75.75 0 00-1.28-.53l-3 3a.75.75 0 00-.22.53v4.5c0 .199.079.39.22.53l3 3a.75.75 0 001.28-.53V4.75z" />
-                  </svg>
-                  <span>カメラ切替</span>
+                  {isAnalyzing ? '解析中...' : 'Geminiで解析'}
                 </button>
               </div>
-              <div className="text-xs text-white/80">
-                {availableCameras.find(camera => camera.deviceId === selectedCamera)?.label || 'カメラ未選択'}
-              </div>
             </div>
-            
-            {error && (
-              <div className="px-3 py-2 rounded bg-red-500/20 border border-red-500/30">
-                <p className="text-xs text-white/90">{error}</p>
+            {analysis && (
+              <div className="flex justify-between items-center text-white">
+                <p className="text-sm font-medium">状態: {analysis.state}</p>
+                <p className="text-sm font-medium">
+                  信頼度: {(analysis.confidence * 100).toFixed(1)}%
+                </p>
               </div>
             )}
           </div>
