@@ -16,6 +16,8 @@
 
 GemiMoは、Gemini AIの3D認識技術とスマートアラーム機能を組み合わせた、次世代型目覚ましアプリケーションです。ユーザーの睡眠を見守るAIアシスタントとして、最適なタイミングと方法で目覚めをサポートします。
 
+https://github.com/user-attachments/assets/feff5ad4-31e4-4839-9ee9-b3cbdeb98f53
+
 ## 🛠️ 技術スタック
 
 ### フロントエンド
