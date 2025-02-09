@@ -4,20 +4,10 @@ import { SleepState } from '../types'
 interface AlarmSoundConfig {
   volume: number
   frequency: number
+  fade_duration?: number
 }
 
-const getSoundPath = (state: SleepState): string => {
-  switch (state) {
-    case 'SLEEPING':
-      return '/sounds/sleeping/Moonlight-Bamboo-Forest.mp3'
-    case 'STRUGGLING':
-      return '/sounds/struggling/Feline Symphony.mp3'
-    case 'AWAKE':
-      return '/sounds/awake/Silent Whisper of the Sakura.mp3'
-    default:
-      return ''
-  }
-}
+const DEFAULT_FADE_DURATION = 2000 // 2秒
 
 export const useAlarmSound = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -26,104 +16,139 @@ export const useAlarmSound = () => {
   const [targetVolume, setTargetVolume] = useState(0)
   const [isLoaded, setIsLoaded] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    // Audio要素の作成
-    audioRef.current = new Audio()
-    return () => {
-      if (audioRef.current) {
-        if (fadeIntervalRef.current) {
-          clearInterval(fadeIntervalRef.current)
-          fadeIntervalRef.current = null
-        }
-        audioRef.current.pause()
-        audioRef.current = null
-      }
+  // クリーンアップ関数
+  const cleanup = () => {
+    if (fadeIntervalRef.current) {
+      clearInterval(fadeIntervalRef.current)
+      fadeIntervalRef.current = null
     }
-  }, [])
-
-  const playSound = (state: SleepState, config: AlarmSoundConfig) => {
-    if (!audioRef.current || state === 'UNKNOWN') return
-    
-    const soundPath = getSoundPath(state)
-    if (!soundPath) return
-
-    try {
-      // 状態が変化した場合は新しい音声をロード
-      if (state !== currentState) {
-        audioRef.current.src = soundPath
-        audioRef.current.loop = true // ループ再生を有効化
-        setCurrentState(state)
-        setIsLoaded(false)
-
-        // 音声ロードイベントの設定
-        audioRef.current.oncanplaythrough = () => {
-          setIsLoaded(true)
-          startPlayback(config.volume)
-        }
-
-        // エラーハンドリング
-        audioRef.current.onerror = (e) => {
-          console.error('Audio loading error:', e)
-          setIsLoaded(false)
-          setIsPlaying(false)
-        }
-      } else if (isLoaded) {
-        // 同じ状態の場合は直接再生開始
-        startPlayback(config.volume)
-      }
-    } catch (err) {
-      console.error('Error in playSound:', err)
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
     }
   }
 
-  const startPlayback = (targetVol: number) => {
+  useEffect(() => {
+    // Audio要素の初期化
+    audioRef.current = new Audio()
+    audioRef.current.onended = () => setIsPlaying(false)
+    audioRef.current.onerror = (e) => {
+      console.error('Audio error:', e)
+      setError('音声の再生中にエラーが発生しました')
+      setIsPlaying(false)
+    }
+
+    return cleanup
+  }, [])
+
+  const getSoundPath = (state: SleepState): string => {
+    const paths = {
+      SLEEPING: '/sounds/sleeping/Moonlight-Bamboo-Forest.mp3',
+      STRUGGLING: '/sounds/struggling/Feline Symphony.mp3',
+      AWAKE: '/sounds/awake/Silent Whisper of the Sakura.mp3',
+      UNKNOWN: ''
+    }
+    return paths[state]
+  }
+
+  const startFade = (
+    startVolume: number, 
+    endVolume: number, 
+    duration: number,
+    onComplete?: () => void
+  ) => {
     if (!audioRef.current) return
+    
+    const steps = Math.max(duration / 50, 1) // 最低でも1ステップ
+    const volumeStep = (endVolume - startVolume) / steps
+    let currentStep = 0
 
-    // 初期音量を0に設定
-    audioRef.current.volume = 0
-    setTargetVolume(Math.min(Math.max(targetVol, 0), 1))
-
-    // フェードインの開始
     if (fadeIntervalRef.current) {
       clearInterval(fadeIntervalRef.current)
     }
 
-    audioRef.current.play()
-      .then(() => {
-        setIsPlaying(true)
-        // フェードイン処理
-        fadeIntervalRef.current = setInterval(() => {
-          if (!audioRef.current) return
-          const newVolume = Math.min(audioRef.current.volume + 0.05, targetVolume)
-          audioRef.current.volume = newVolume
-          if (newVolume >= targetVolume) {
-            clearInterval(fadeIntervalRef.current!)
-            fadeIntervalRef.current = null
-          }
-        }, 100)
-      })
-      .catch(err => console.error('Error starting playback:', err))
+    fadeIntervalRef.current = setInterval(() => {
+      if (!audioRef.current) return
+      
+      currentStep++
+      const newVolume = startVolume + (volumeStep * currentStep)
+      audioRef.current.volume = Math.max(0, Math.min(1, newVolume))
+
+      if (currentStep >= steps) {
+        if (fadeIntervalRef.current) {
+          clearInterval(fadeIntervalRef.current)
+          fadeIntervalRef.current = null
+        }
+        if (onComplete) onComplete()
+      }
+    }, 50)
+  }
+
+  const playSound = async (state: SleepState, config: AlarmSoundConfig) => {
+    try {
+      setError(null)
+      if (!audioRef.current || state === 'UNKNOWN') return
+      
+      const soundPath = getSoundPath(state)
+      if (!soundPath) {
+        setError('指定された状態の音声ファイルが見つかりません')
+        return
+      }
+
+      // 状態が変化した場合は新しい音声をロード
+      if (state !== currentState || !isLoaded) {
+        audioRef.current.src = soundPath
+        audioRef.current.loop = true
+        setCurrentState(state)
+        setIsLoaded(false)
+
+        // 音声のロード完了を待つ
+        await new Promise((resolve, reject) => {
+          if (!audioRef.current) return reject('Audio element not initialized')
+          audioRef.current.oncanplaythrough = resolve
+          audioRef.current.onerror = reject
+        })
+
+        setIsLoaded(true)
+      }
+
+      const fadeDuration = config.fade_duration ?? DEFAULT_FADE_DURATION
+      const targetVol = Math.min(Math.max(config.volume, 0), 1)
+      setTargetVolume(targetVol)
+
+      // 再生開始（フェードイン）
+      audioRef.current.volume = 0
+      await audioRef.current.play()
+      setIsPlaying(true)
+      startFade(0, targetVol, fadeDuration)
+
+    } catch (err) {
+      console.error('Error playing sound:', err)
+      setError(err instanceof Error ? err.message : '音声の再生に失敗しました')
+      setIsPlaying(false)
+    }
   }
 
   const stopSound = () => {
-    if (!audioRef.current) return
-    // フェードアウト
-    const fadeOut = setInterval(() => {
-      if (!audioRef.current || audioRef.current.volume <= 0.05) {
-        clearInterval(fadeOut)
-        audioRef.current?.pause()
-        setIsPlaying(false)
-        return
+    if (!audioRef.current || !isPlaying) return
+
+    const fadeDuration = 1000 // 1秒でフェードアウト
+    startFade(audioRef.current.volume, 0, fadeDuration, () => {
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current.currentTime = 0
       }
-      audioRef.current.volume -= 0.05
-    }, 100)
+      setIsPlaying(false)
+    })
   }
 
   return {
     playSound,
     stopSound,
     isPlaying,
-    isLoaded
+    isLoaded,
+    error
   }
 }

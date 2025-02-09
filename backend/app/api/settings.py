@@ -1,8 +1,20 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Literal
+from typing import Dict, Literal, Optional
+from enum import Enum
 
 router = APIRouter()
+
+class SleepState(str, Enum):
+    UNKNOWN = "UNKNOWN"
+    SLEEPING = "SLEEPING"
+    STRUGGLING = "STRUGGLING"
+    AWAKE = "AWAKE"
+
+class Resolution(BaseModel):
+    width: int
+    height: int
+    label: str
 
 MODEL_OPTIONS = Literal[
     "gemini-2.0-flash",
@@ -16,7 +28,15 @@ class Settings(BaseModel):
     model: MODEL_OPTIONS
     cameraId: str
     facingMode: Literal['user', 'environment']
-    resolution: dict
+    resolution: Resolution
+    alarmSounds: Optional[Dict[SleepState, str]] = None
+
+DEFAULT_ALARM_SOUNDS = {
+    SleepState.SLEEPING: '/sounds/sleeping/Moonlight-Bamboo-Forest.mp3',
+    SleepState.STRUGGLING: '/sounds/struggling/Feline Symphony.mp3',
+    SleepState.AWAKE: '/sounds/awake/Silent Whisper of the Sakura.mp3',
+    SleepState.UNKNOWN: ''
+}
 
 @router.get("/")
 async def get_settings():
@@ -35,10 +55,14 @@ async def get_settings():
                 "width": 1280,
                 "height": 720,
                 "label": "HD (1280x720)"
-            }
+            },
+            "alarmSounds": DEFAULT_ALARM_SOUNDS
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500, 
+            detail=f"設定の読み込みに失敗しました: {str(e)}"
+        )
 
 @router.post("/")
 async def update_settings(settings: Settings):
@@ -50,6 +74,13 @@ async def update_settings(settings: Settings):
         set_key(env_path, "GEMINI_API_KEY", settings.apiKey)
         set_key(env_path, "GEMINI_MODEL", settings.model)
         
-        return {"success": True}
+        # アラーム音の設定があれば更新
+        if settings.alarmSounds:
+            set_key(env_path, "ALARM_SOUNDS", str(dict(settings.alarmSounds)))
+        
+        return {"success": True, "message": "設定を保存しました"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500, 
+            detail=f"設定の保存に失敗しました: {str(e)}"
+        )

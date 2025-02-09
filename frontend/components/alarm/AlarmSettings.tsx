@@ -12,9 +12,11 @@ interface AlarmSettingsProps {
     sounds: Record<SleepState, string>
   }) => void
   enabled: boolean
+  shouldPlayAlarm: SleepState | null
+  onStopAlarm: () => void
 }
 
-export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
+export const AlarmSettings = ({ onSubmit, enabled, shouldPlayAlarm, onStopAlarm }: AlarmSettingsProps) => {
   const [alarmTime, setAlarmTime] = useState('')
   const [currentTime, setCurrentTime] = useState('')
   const [forceAlarmState, setForceAlarmState] = useState<SleepState | null>(null)
@@ -28,7 +30,14 @@ export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const { settings } = useSettings()
   const cameraProps = useCameraDevices()
-  const { playSound, stopSound, isPlaying, isLoaded } = useAlarmSound()
+  const { playSound, stopSound, isPlaying, isLoaded, error } = useAlarmSound()
+
+  // サウンド状態のログ出力
+  useEffect(() => {
+    if (error) {
+      console.error('[AlarmSettings] Sound error:', error)
+    }
+  }, [error])
 
   useEffect(() => {
     // Update current time
@@ -52,18 +61,25 @@ export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
     }
   }, [settings, cameraProps.selectedCamera, cameraProps.facingMode, cameraProps.selectedResolution])
 
-  // アラーム音の制御
+  // アラーム音の制御（通常のアラームと強制アラーム）
   useEffect(() => {
-    if (forceAlarmState) {
-      playSound(forceAlarmState, { volume: 0.8, frequency: 800 })
+    const state = shouldPlayAlarm || forceAlarmState
+    if (state) {
+      console.log(`[AlarmSettings] Playing alarm for state: ${state}`)
+      playSound(state, { volume: 0.8, frequency: 800 })
     } else {
+      console.log('[AlarmSettings] Stopping alarm')
       stopSound()
     }
-    return () => stopSound()
-  }, [forceAlarmState])
+    return () => {
+      console.log('[AlarmSettings] Cleaning up alarm')
+      stopSound()
+    }
+  }, [shouldPlayAlarm, forceAlarmState])
 
   // 強制アラーム起動の処理
   const handleForceAlarm = (state: SleepState) => {
+    console.log(`[AlarmSettings] Force alarm state: ${state}`)
     if (forceAlarmState === state) {
       setForceAlarmState(null)
     } else {
@@ -73,14 +89,27 @@ export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onSubmit({
-      time: alarmTime,
-      sounds: selectedSound
-    })
+    if (enabled) {
+      console.log('[AlarmSettings] Stopping alarm via form submit')
+      onStopAlarm()
+    } else {
+      console.log('[AlarmSettings] Starting alarm with time:', alarmTime)
+      onSubmit({
+        time: alarmTime,
+        sounds: selectedSound
+      })
+    }
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 relative">
+      {/* Error Display */}
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-4">
+          <p className="text-red-700 text-sm">{error}</p>
+        </div>
+      )}
+
       {/* Camera Preview */}
       <div className="mb-4">
         <CameraControls 
@@ -108,14 +137,14 @@ export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
         </div>
         {enabled && alarmTime && (
           <div className="text-sm text-gray-600">
-            Alarm set for: {alarmTime}
+            アラーム設定時刻: {alarmTime}
           </div>
         )}
       </div>
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          Alarm Time
+          アラーム時刻
         </label>
         <input
           type="time"
@@ -127,14 +156,14 @@ export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
       </div>
 
       <div>
-        <h3 className="text-sm font-medium text-gray-700 mb-2">Alarm Sound Settings</h3>
+        <h3 className="text-sm font-medium text-gray-700 mb-2">アラーム音の設定</h3>
         <div className="space-y-4">
           {(Object.keys(selectedSound) as SleepState[]).filter(state => state !== 'UNKNOWN').map((state) => (
             <div key={state} className="flex items-center justify-between">
               <label className="text-sm text-gray-600">
-                {state === 'SLEEPING' && 'During Sleep'}
-                {state === 'STRUGGLING' && 'While Struggling'}
-                {state === 'AWAKE' && 'Upon Waking'}
+                {state === 'SLEEPING' && '睡眠中'}
+                {state === 'STRUGGLING' && 'もがき中'}
+                {state === 'AWAKE' && '起床時'}
               </label>
               <select
                 value={selectedSound[state]}
@@ -150,6 +179,25 @@ export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
               </select>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Sound State Display */}
+      <div className="p-4 bg-gray-50 rounded-lg">
+        <h3 className="text-sm font-medium text-gray-700 mb-2">アラーム状態</h3>
+        <div className="space-y-2 text-sm">
+          <p className="flex justify-between">
+            <span className="text-gray-600">読み込み状態:</span>
+            <span className={isLoaded ? 'text-green-600' : 'text-gray-600'}>
+              {isLoaded ? '準備完了' : '読み込み中...'}
+            </span>
+          </p>
+          <p className="flex justify-between">
+            <span className="text-gray-600">再生状態:</span>
+            <span className={isPlaying ? 'text-green-600' : 'text-gray-600'}>
+              {isPlaying ? '再生中' : '停止中'}
+            </span>
+          </p>
         </div>
       </div>
 
@@ -203,7 +251,7 @@ export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
           enabled ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'
         }`}
       >
-        {enabled ? 'Stop Alarm' : 'Start Alarm'}
+        {enabled ? 'アラーム停止' : 'アラーム開始'}
       </button>
     </form>
   )
