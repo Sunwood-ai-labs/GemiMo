@@ -23,7 +23,7 @@ export default function Home() {
     <div className="container mx-auto px-4 py-8">
       <header className="text-center mb-12">
         <h1 className="text-4xl font-bold text-gray-800 mb-2">GemiMo</h1>
-        <p className="text-xl text-gray-600">AIが見守る、やさしい目覚め</p>
+        <p className="text-xl text-gray-600">Your AI Sleep Guardian</p>
       </header>
 
       <div className="max-w-md mx-auto bg-white rounded-xl shadow-lg p-6">
@@ -32,23 +32,22 @@ export default function Home() {
           enabled={alarmEnabled}
         />
 
-        {/* ステータス表示 */}
+        {/* Status Display */}
         {alarmEnabled && currentSettings && (
           <div className="mt-6 p-4 bg-gray-50 rounded-lg">
             <p className="text-center text-gray-700">
-              アラーム設定済み: {currentSettings.time}
+              Alarm set for: {currentSettings.time}
             </p>
           </div>
         )}
       </div>
 
-      {/* デバッグページへのリンク */}
       <div className="mt-8 text-center">
         <Link 
           href="/debug" 
           className="text-sm text-gray-500 hover:text-gray-700"
         >
-          デバッグパネルを開く
+          Open Debug Panel
         </Link>
       </div>
     </div>

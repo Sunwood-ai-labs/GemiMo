@@ -27,80 +27,43 @@ export const useSettings = () => {
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // 設定の読み込み
-  const loadSettings = async () => {
-    try {
-      // APIキーとモデルの設定を取得
-      const response = await fetch('/api/settings')
-      const data = await response.json()
-      
-      // ローカルストレージからカメラ設定を取得
-      const savedCameraId = localStorage.getItem('preferredCameraId')
-      const savedFacingMode = localStorage.getItem('preferredFacingMode')
-      const savedResolution = localStorage.getItem('preferredResolution')
-
-      setSettings(prev => ({
-        ...prev,
-        apiKey: data.apiKey || '',
-        model: data.model || 'gemini-2.0-flash',
-        cameraId: savedCameraId || '',
-        facingMode: (savedFacingMode as 'user' | 'environment') || 'environment',
-        resolution: savedResolution ? JSON.parse(savedResolution) : prev.resolution
-      }))
-      setError(null)
-    } catch (err) {
-      setError('Failed to load settings')
-      console.error('Error loading settings:', err)
-    }
-  }
-
-  // 設定の保存
   const saveSettings = async (newSettings: Partial<Settings>) => {
     setIsSaving(true)
     try {
-      // APIキーとモデルの設定を保存
       const response = await fetch('/api/settings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          apiKey: newSettings.apiKey,
-          model: newSettings.model,
-        }),
+        body: JSON.stringify(newSettings),
       })
 
       if (!response.ok) {
         throw new Error('Failed to save settings')
       }
 
-      // カメラ設定をローカルストレージに保存
-      if (newSettings.cameraId) {
-        localStorage.setItem('preferredCameraId', newSettings.cameraId)
-      }
-      if (newSettings.facingMode) {
-        localStorage.setItem('preferredFacingMode', newSettings.facingMode)
-      }
-      if (newSettings.resolution) {
-        localStorage.setItem('preferredResolution', JSON.stringify(newSettings.resolution))
-      }
-
-      // 状態を更新
-      setSettings(prev => ({
-        ...prev,
-        ...newSettings
-      }))
+      setSettings(prev => ({ ...prev, ...newSettings }))
       setError(null)
     } catch (err) {
-      setError('Failed to save settings')
-      console.error('Error saving settings:', err)
+      setError(err instanceof Error ? err.message : 'Failed to save settings')
     } finally {
       setIsSaving(false)
     }
   }
 
-  // 初期設定の読み込み
   useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const response = await fetch('/api/settings')
+        if (!response.ok) {
+          throw new Error('Failed to load settings')
+        }
+        const data = await response.json()
+        setSettings(data)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load settings')
+      }
+    }
     loadSettings()
   }, [])
 
@@ -108,7 +71,6 @@ export const useSettings = () => {
     settings,
     isSaving,
     error,
-    saveSettings,
-    loadSettings
+    saveSettings
   }
 }
