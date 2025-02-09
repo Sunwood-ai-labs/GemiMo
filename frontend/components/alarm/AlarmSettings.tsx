@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { SleepState } from '@/lib/types'
+import { useState, useEffect } from 'react'
+import { SleepState } from '../../lib/types'
 
 interface AlarmSettingsProps {
   onSubmit: (settings: {
@@ -11,12 +11,28 @@ interface AlarmSettingsProps {
 
 export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
   const [alarmTime, setAlarmTime] = useState('')
+  const [currentTime, setCurrentTime] = useState('')
   const [selectedSound, setSelectedSound] = useState({
     SLEEPING: '/sounds/sleeping/Moonlight-Bamboo-Forest.mp3',
     STRUGGLING: '/sounds/struggling/Feline Symphony.mp3',
     AWAKE: '/sounds/awake/Silent Whisper of the Sakura.mp3',
     UNKNOWN: ''
   })
+
+  useEffect(() => {
+    // Update current time
+    const updateCurrentTime = () => {
+      const now = new Date()
+      const hours = now.getHours().toString().padStart(2, '0')
+      const minutes = now.getMinutes().toString().padStart(2, '0')
+      setCurrentTime(`${hours}:${minutes}`)
+    }
+    // Initial update
+    updateCurrentTime()
+    // Update every minute
+    const interval = setInterval(updateCurrentTime, 60000)
+    return () => clearInterval(interval)
+  }, [])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -27,7 +43,19 @@ export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6 relative">
+      {/* Current time display */}
+      <div className="text-center mb-8">
+        <div className="text-6xl font-display text-gray-800 mb-2">
+          {currentTime}
+        </div>
+        {enabled && alarmTime && (
+          <div className="text-sm text-gray-600">
+            Alarm set for: {alarmTime}
+          </div>
+        )}
+      </div>
+
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Alarm Time
