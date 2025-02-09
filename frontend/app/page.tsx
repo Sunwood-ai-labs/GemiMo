@@ -17,7 +17,7 @@ export default function Home() {
 
   // ログ追加関数
   const addLog = (message: string) => {
-    console.log(message) // ブラウザコンソールにも出力
+    console.log(message)
     setLogs(prev => [...prev, `${new Date().toLocaleTimeString()} - ${message}`].slice(-10))
   }
 
@@ -29,7 +29,6 @@ export default function Home() {
     
     const now = new Date()
     if (target.getTime() < now.getTime()) {
-      // 翌日の同時刻に設定
       target.setDate(target.getDate() + 1)
     }
     
@@ -48,7 +47,6 @@ export default function Home() {
     const target = new Date()
     target.setHours(targetHours, targetMinutes, 0, 0)
 
-    // 現在時刻が設定時刻以降であればtrue
     return now.getTime() >= target.getTime()
   }
 
@@ -60,12 +58,9 @@ export default function Home() {
       const currentTimeStr = `${hours}:${minutes}`
       setCurrentTime(currentTimeStr)
 
-      // アラーム制御
       if (alarmEnabled && currentSettings) {
-        // カウントダウンの更新
         setCountdown(calculateTimeRemaining(currentSettings.time))
         
-        // 設定時刻を過ぎているかチェック
         if (isTimeToAlarm(currentSettings.time)) {
           addLog(`アラーム起動条件成立: 設定時刻 ${currentSettings.time} <= 現在時刻 ${currentTimeStr}`)
           setShouldPlayAlarm('SLEEPING')
@@ -73,7 +68,7 @@ export default function Home() {
       }
     }
 
-    updateTime() // 初回実行
+    updateTime()
     const interval = setInterval(updateTime, 1000)
     return () => clearInterval(interval)
   }, [alarmEnabled, currentSettings])
@@ -85,7 +80,6 @@ export default function Home() {
     addLog(`アラーム設定: ${settings.time}`)
     setAlarmEnabled(true)
     setCurrentSettings(settings)
-    // 設定時に既に時間を過ぎている場合はすぐにアラームを起動
     if (isTimeToAlarm(settings.time)) {
       addLog('設定時刻経過済み - 即時アラーム起動')
       setShouldPlayAlarm('SLEEPING')
@@ -101,69 +95,74 @@ export default function Home() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <header className="text-center mb-12">
-        <h1 className="text-4xl font-display text-gray-800 mb-4">
-          Smart Sleep Recognition
-        </h1>
-        <p className="text-xl font-display text-gray-600">
-          Advanced AI-powered sleep monitoring system that watches over your peaceful rest using cutting-edge 3D recognition technology.
-        </p>
-      </header>
+    <div className="min-h-screen bg-gray-50">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <header className="text-center mb-8 sm:mb-12">
+          <h1 className="text-3xl sm:text-4xl font-display text-gray-800 mb-3 sm:mb-4">
+            Smart Wake Companion
+          </h1>
+          <p className="text-lg sm:text-xl font-display text-gray-600 max-w-2xl mx-auto px-4">
+            Wake up naturally with AI that understands your sleep patterns through advanced 3D sensing.
+          </p>
+        </header>
 
-      <div className="max-w-md mx-auto bg-white rounded-xl shadow-lg p-6">
-        <AlarmSettings
-          onSubmit={handleAlarmSubmit}
-          enabled={alarmEnabled}
-          shouldPlayAlarm={shouldPlayAlarm}
-          onStopAlarm={handleStopAlarm}
-        />
+        <div className="max-w-xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-4 sm:p-6">
+            <AlarmSettings
+              onSubmit={handleAlarmSubmit}
+              enabled={alarmEnabled}
+              shouldPlayAlarm={shouldPlayAlarm}
+              onStopAlarm={handleStopAlarm}
+            />
 
-        {/* Status Display */}
-        {alarmEnabled && currentSettings && (
-          <div className="mt-6 space-y-4">
-            {/* アラーム情報 */}
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <p className="text-center text-gray-700">
-                アラーム設定時刻: {currentSettings.time}
-              </p>
-              <p className="text-center text-gray-700 mt-2">
-                現在時刻: {currentTime}
-              </p>
-            </div>
-            
-            {/* カウントダウン表示 */}
-            <div className="p-4 bg-blue-50 rounded-lg">
-              <p className="text-center text-lg font-semibold text-blue-700">
-                {shouldPlayAlarm ? 'アラーム起動中' : 'アラームまで:'}
-              </p>
-              <p className="text-center text-3xl font-mono text-blue-800 mt-2">
-                {countdown}
-              </p>
-            </div>
+            {alarmEnabled && currentSettings && (
+              <div className="mt-6 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* アラーム情報 */}
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <p className="text-center text-gray-700">
+                      アラーム設定時刻: {currentSettings.time}
+                    </p>
+                    <p className="text-center text-gray-700 mt-2">
+                      現在時刻: {currentTime}
+                    </p>
+                  </div>
+                  
+                  {/* カウントダウン表示 */}
+                  <div className="p-4 bg-blue-50 rounded-lg">
+                    <p className="text-center text-lg font-semibold text-blue-700">
+                      {shouldPlayAlarm ? 'アラーム起動中' : 'アラームまで:'}
+                    </p>
+                    <p className="text-center text-2xl sm:text-3xl font-mono text-blue-800 mt-2">
+                      {countdown}
+                    </p>
+                  </div>
+                </div>
 
-            {/* ログ表示 */}
-            <div className="mt-4 p-4 bg-gray-800 rounded-lg overflow-hidden">
-              <p className="text-white text-sm mb-2 font-semibold">処理ログ:</p>
-              <div className="space-y-1 h-32 overflow-y-auto text-xs">
-                {logs.map((log, index) => (
-                  <p key={index} className="text-gray-300 font-mono">
-                    {log}
-                  </p>
-                ))}
+                {/* ログ表示 */}
+                <div className="mt-4 p-4 bg-gray-800 rounded-lg">
+                  <p className="text-white text-sm mb-2 font-semibold">処理ログ:</p>
+                  <div className="space-y-1 h-28 sm:h-32 overflow-y-auto text-xs">
+                    {logs.map((log, index) => (
+                      <p key={index} className="text-gray-300 font-mono">
+                        {log}
+                      </p>
+                    ))}
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
-        )}
-      </div>
 
-      <div className="mt-8 text-center">
-        <Link 
-          href="/debug" 
-          className="text-sm text-gray-500 hover:text-gray-700"
-        >
-          Open Debug Panel
-        </Link>
+          <div className="mt-6 sm:mt-8 text-center">
+            <Link 
+              href="/debug" 
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              Open Debug Panel
+            </Link>
+          </div>
+        </div>
       </div>
     </div>
   )
