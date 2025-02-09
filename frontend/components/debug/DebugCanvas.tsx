@@ -24,10 +24,10 @@ export const DebugCanvas = ({ videoRef, analysis, facingMode, capturedImage }: D
     img.onload = () => {
       // コンテナの幅を取得（パディングを考慮）
       const containerWidth = Math.min(
-        window.innerWidth - 64, // 左右32pxずつのパディング
-        1920 // 最大幅
+        window.innerWidth - 64,
+        1920
       )
-      const targetWidth = (containerWidth / 2) - 16 // 2カラムの場合、各キャンバスの幅
+      const targetWidth = (containerWidth / 2) - 16
       
       // 画像のアスペクト比を維持しながらキャンバスサイズを計算
       const aspectRatio = img.height / img.width
@@ -39,6 +39,7 @@ export const DebugCanvas = ({ videoRef, analysis, facingMode, capturedImage }: D
       inputCanvas.height = canvasHeight
       const inputCtx = inputCanvas.getContext('2d')
       if (inputCtx) {
+        // そのまま描画
         inputCtx.drawImage(img, 0, 0, canvasWidth, canvasHeight)
       }
 
@@ -47,10 +48,10 @@ export const DebugCanvas = ({ videoRef, analysis, facingMode, capturedImage }: D
       vizCanvas.height = canvasHeight
       const vizCtx = vizCanvas.getContext('2d')
       if (vizCtx) {
-        // キャプチャした画像を描画
+        // そのまま描画
         vizCtx.drawImage(img, 0, 0, canvasWidth, canvasHeight)
         
-        // 3Dボックスを太く、より目立つように描画
+        // 解析結果の描画
         if (analysis?.boxes) {
           Object.entries(analysis.boxes).forEach(([label, box]) => {
             drawBox3D(vizCtx, label, box, canvasWidth, canvasHeight)
@@ -75,24 +76,16 @@ export const DebugCanvas = ({ videoRef, analysis, facingMode, capturedImage }: D
       <div className="relative aspect-[4/3] w-full">
         <canvas 
           ref={inputCanvasRef}
-          className="w-full h-full object-cover"
-          style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
+          className="w-full h-full object-contain"
         />
-        <div className="absolute top-2 left-2 text-xs font-mono text-white bg-black/50 px-2 py-1 rounded">
-          Input
-        </div>
       </div>
       
       {/* Visualization */}
       <div className="relative aspect-[4/3] w-full">
         <canvas 
           ref={vizCanvasRef}
-          className="w-full h-full object-cover"
-          style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
+          className="w-full h-full object-contain"
         />
-        <div className="absolute top-2 left-2 text-xs font-mono text-white bg-black/50 px-2 py-1 rounded">
-          Visualization
-        </div>
       </div>
     </div>
   )

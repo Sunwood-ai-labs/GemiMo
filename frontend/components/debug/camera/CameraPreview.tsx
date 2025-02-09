@@ -21,15 +21,10 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
         playsInline
         muted
         className="w-full h-full object-cover"
-        style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
       />
-
-      {/* 処理状態の表示 */}
-      {(isAnalyzing || processingStatus) && (
-        <div className="absolute inset-x-0 bottom-20 flex justify-center">
-          <div className="px-4 py-2 rounded-full bg-black/50 text-white text-sm">
-            {processingStatus || '解析中...'}
-          </div>
+      {isAnalyzing && processingStatus && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white">
+          {processingStatus}
         </div>
       )}
     </div>
