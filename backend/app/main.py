@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from core.gemimo import GemiMo
 import json
+from app.api import alarm
 
 app = FastAPI(title="GemiMo API")
 
@@ -14,6 +15,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# APIルーターの追加
+app.include_router(alarm.router, prefix="/api/alarm", tags=["alarm"])
 
 # GemiMoインスタンスの初期化
 gemimo = GemiMo()

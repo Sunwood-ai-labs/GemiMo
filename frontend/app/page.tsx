@@ -1,30 +1,55 @@
 'use client'
-import { CameraFeed } from '@/components/debug/CameraFeed'
+import { useState } from 'react'
+import Link from 'next/link'
+import { AlarmSettings } from '@/components/alarm/AlarmSettings'
+import { SleepState } from '@/lib/types'
 
 export default function Home() {
+  const [alarmEnabled, setAlarmEnabled] = useState(false)
+  const [currentSettings, setCurrentSettings] = useState<{
+    time: string;
+    sounds: Record<SleepState, string>;
+  } | null>(null)
+
+  const handleAlarmSubmit = (settings: {
+    time: string;
+    sounds: Record<SleepState, string>;
+  }) => {
+    setAlarmEnabled(!alarmEnabled)
+    setCurrentSettings(settings)
+  }
+
   return (
-    <div className="container mx-auto px-4">
-      <header className="text-center mb-6">
-        <h2 className="font-display text-2xl sm:text-4xl text-gray-800 mb-2">
-          Smart Sleep Recognition
-        </h2>
-        <p className="text-sm sm:text-base text-gray-600 max-w-2xl mx-auto">
-          Advanced AI-powered sleep monitoring system that watches over your peaceful rest
-          using cutting-edge 3D recognition technology.
-        </p>
+    <div className="container mx-auto px-4 py-8">
+      <header className="text-center mb-12">
+        <h1 className="text-4xl font-bold text-gray-800 mb-2">GemiMo</h1>
+        <p className="text-xl text-gray-600">AIが見守る、やさしい目覚め</p>
       </header>
-      
-      <div className="grid gap-6">
-        <div className="backdrop-blur-xl bg-white/80 rounded-lg p-4 sm:p-6 shadow-lg border border-white/20">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base sm:text-lg font-medium text-gray-800">Live Monitor</h3>
-            <div className="flex items-center space-x-2">
-              <div className="h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
-              <span className="text-xs sm:text-sm text-gray-600">Processing</span>
-            </div>
+
+      <div className="max-w-md mx-auto bg-white rounded-xl shadow-lg p-6">
+        <AlarmSettings
+          onSubmit={handleAlarmSubmit}
+          enabled={alarmEnabled}
+        />
+
+        {/* ステータス表示 */}
+        {alarmEnabled && currentSettings && (
+          <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+            <p className="text-center text-gray-700">
+              アラーム設定済み: {currentSettings.time}
+            </p>
           </div>
-          <CameraFeed />
-        </div>
+        )}
+      </div>
+
+      {/* デバッグページへのリンク */}
+      <div className="mt-8 text-center">
+        <Link 
+          href="/debug" 
+          className="text-sm text-gray-500 hover:text-gray-700"
+        >
+          デバッグパネルを開く
+        </Link>
       </div>
     </div>
   )
