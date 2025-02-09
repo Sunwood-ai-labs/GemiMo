@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { AnalysisResult } from '@/lib/types/camera'
 import { drawBox3D, drawDebugInfo, getStateColor } from '@/lib/utils/drawing'
 import { useCameraDevices } from '@/lib/hooks/useCameraDevices'
+import { useAlarmSound } from '@/lib/hooks/useAlarmSound'
 import { DebugCanvas } from './DebugCanvas'
 import { DebugInfo } from './DebugInfo'
 import { AnalysisPanel } from './analysis/AnalysisPanel'
@@ -17,12 +18,21 @@ export const CameraFeed = () => {
   const [processingStatus, setProcessingStatus] = useState<string>('')
 
   const cameraProps = useCameraDevices()
+  const { playSound, stopSound } = useAlarmSound()
 
   useEffect(() => {
     if (cameraProps.selectedCamera) {
       cameraProps.initializeCamera(videoRef)
     }
   }, [cameraProps.selectedCamera, cameraProps.facingMode, cameraProps.selectedResolution])
+
+  useEffect(() => {
+    if (analysis?.state && analysis.alarm) {
+      playSound(analysis.state, analysis.alarm)
+    } else {
+      stopSound()
+    }
+  }, [analysis])
 
   const handleAnalyze = async () => {
     if (!canvasRef.current || !videoRef.current || isAnalyzing) return
