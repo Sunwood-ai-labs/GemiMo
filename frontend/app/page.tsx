@@ -22,8 +22,12 @@ export default function Home() {
   return (
     <div className="container mx-auto px-4 py-8">
       <header className="text-center mb-12">
-        <h1 className="text-4xl font-bold text-gray-800 mb-2">GemiMo</h1>
-        <p className="text-xl text-gray-600">Your AI Sleep Guardian</p>
+        <h1 className="text-4xl font-display text-gray-800 mb-4">
+          GemiMo
+        </h1>
+        <p className="text-xl font-display text-gray-600">
+        AI Sleep Guardian
+        </p>
       </header>
 
       <div className="max-w-md mx-auto bg-white rounded-xl shadow-lg p-6">
