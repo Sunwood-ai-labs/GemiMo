@@ -1,247 +1,153 @@
-import { useEffect, useRef, useState } from 'react'
-import { SleepData } from '@/lib/types'
+import { useState, useRef, useEffect } from 'react'
+import { AnalysisResult } from '@/lib/types/camera'
+import { drawBox3D, drawDebugInfo, getStateColor } from '@/lib/utils/drawing'
+import { useCameraDevices } from '@/lib/hooks/useCameraDevices'
+import { useAlarmSound } from '@/lib/hooks/useAlarmSound'
+import { DebugCanvas } from './DebugCanvas'
+import { DebugInfo } from './DebugInfo'
+import { AnalysisPanel } from './analysis/AnalysisPanel'
+import { CameraControls } from './camera/CameraControls'
+import { CameraPreview } from './camera/CameraPreview'
 
 export const CameraFeed = () => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [ws, setWs] = useState<WebSocket | null>(null)
-  const [sleepData, setSleepData] = useState<SleepData | null>(null)
-  const [analysis, setAnalysis] = useState<any>(null)
-  const [hasCamera, setHasCamera] = useState(false)
+  const [capturedImage, setCapturedImage] = useState<string | null>(null)
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [processingStatus, setProcessingStatus] = useState<string>('')
+
+  const cameraProps = useCameraDevices()
+  const { playSound, stopSound } = useAlarmSound()
 
   useEffect(() => {
-    initializeCamera()
-    return () => {
-      // Cleanup camera stream when component unmounts
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream
-        stream.getTracks().forEach(track => track.stop())
-      }
+    if (cameraProps.selectedCamera) {
+      cameraProps.initializeCamera(videoRef)
     }
-  }, [])
+  }, [cameraProps.selectedCamera, cameraProps.facingMode, cameraProps.selectedResolution])
 
-  const initializeCamera = async () => {
+  useEffect(() => {
+    if (analysis?.state && analysis.alarm) {
+      playSound(analysis.state, analysis.alarm)
+    } else {
+      stopSound()
+    }
+  }, [analysis])
+
+  const handleAnalyze = async () => {
+    if (!canvasRef.current || !videoRef.current || isAnalyzing) return
+    setIsAnalyzing(true)
+    setProcessingStatus('画像の準備中...')
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: "user"
-        } 
-      })
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        setHasCamera(true)
-      }
-    } catch (err) {
-      console.error('Error accessing camera:', err)
-      setHasCamera(false)
-    }
-  }
-
-  useEffect(() => {
-    if (!hasCamera) return
-    
-    const websocket = new WebSocket('ws://localhost:8000/ws/gemimo')
-    setWs(websocket)
-
-    websocket.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      setSleepData(data)
-      setAnalysis(data)
-      updateCanvas(data)
-    }
-
-    // Start sending frames when websocket is ready
-    websocket.onopen = () => {
-      startSendingFrames(websocket)
-    }
-
-    return () => {
-      websocket.close()
-    }
-  }, [hasCamera])
-
-  const startSendingFrames = (websocket: WebSocket) => {
-    const sendFrame = () => {
-      if (!videoRef.current || !canvasRef.current || websocket.readyState !== WebSocket.OPEN) return
-
       const canvas = canvasRef.current
-      const context = canvas.getContext('2d')
-      if (!context) return
+      const video = videoRef.current
+      
+      // キャンバスのサイズをビデオのサイズに合わせる
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      
+      // ビデオフレームをキャンバスに描画
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Failed to get canvas context')
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      
+      // 現在のフレームをBase64画像として保存
+      setProcessingStatus('画像のキャプチャ中...')
+      const imageData = canvas.toDataURL('image/jpeg')
+      setCapturedImage(imageData)
+      
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      setProcessingStatus('画像データの変換中...')
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg'))
+      if (!blob) throw new Error('Failed to convert canvas to blob')
 
-      // Draw the current video frame to the canvas
-      context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height)
+      const formData = new FormData()
+      formData.append('file', blob, 'capture.jpg')
 
-      // Convert the canvas to a blob and send it through websocket
-      canvas.toBlob((blob) => {
-        if (blob && websocket.readyState === WebSocket.OPEN) {
-          websocket.send(blob)
-        }
-      }, 'image/jpeg', 0.8)
+      setProcessingStatus('分析リクエスト送信中...')
+      const response = await fetch(`${apiUrl}/analyze`, {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Server error: ${errorText}`)
+      }
+
+      setProcessingStatus('分析結果の処理中...')
+      const data = await response.json()
+      
+      if (data.status === 'error') {
+        throw new Error(data.error || 'Unknown error occurred')
+      }
+      
+      setAnalysis(data.raw_result)
+      setProcessingStatus('分析完了')
+
+    } catch (error) {
+      console.error('Error analyzing image:', error)
+      setProcessingStatus(`エラー: ${error instanceof Error ? error.message : '不明なエラー'}`)
+    } finally {
+      setTimeout(() => {
+        setProcessingStatus('')
+        setIsAnalyzing(false)
+      }, 2000)
     }
-
-    // Send frames every 100ms (10fps)
-    const intervalId = setInterval(sendFrame, 100)
-    return () => clearInterval(intervalId)
-  }
-
-  const updateCanvas = (data: SleepData) => {
-    const canvas = canvasRef.current
-    if (!canvas || !data.boxes) return
-
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-    // Draw 3D bounding boxes
-    Object.entries(data.boxes).forEach(([label, box]) => {
-      const [x, y, z, width, height, depth, roll, pitch, yaw] = box
-      ctx.strokeStyle = label === 'person' ? '#00ff00' : '#0000ff'
-      ctx.lineWidth = 2
-      draw3DBox(ctx, x, y, width, height, pitch)
-    })
-
-    // Draw sleep state indicator
-    ctx.fillStyle = getStateColor(data.state)
-    ctx.font = '24px Arial'
-    ctx.fillText(data.state, 10, 30)
-    ctx.fillText(`Confidence: ${(data.confidence * 100).toFixed(1)}%`, 10, 60)
-  }
-
-  const draw3DBox = (
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    pitch: number
-  ) => {
-    const canvas = ctx.canvas
-    const scale = 100
-    const centerX = canvas.width / 2 + x * scale
-    const centerY = canvas.height / 2 + y * scale
-
-    // Apply perspective transform based on pitch
-    const perspective = Math.cos(pitch * Math.PI / 180)
-    const boxWidth = width * scale * perspective
-    const boxHeight = height * scale
-
-    ctx.beginPath()
-    ctx.rect(
-      centerX - boxWidth / 2,
-      centerY - boxHeight / 2,
-      boxWidth,
-      boxHeight
-    )
-    ctx.stroke()
-  }
-
-  const getStateColor = (state: string): string => {
-    const colors = {
-      SLEEPING: '#4CAF50',
-      STRUGGLING: '#FFC107',
-      AWAKE: '#2196F3',
-      UNKNOWN: '#9E9E9E'
-    }
-    return colors[state as keyof typeof colors] || colors.UNKNOWN
   }
 
   return (
-    <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-xl bg-gradient-to-b from-brand-primary/5 to-brand-accent/5 backdrop-blur-sm border border-white/10">
-        {/* Hidden video element to get camera feed */}
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          style={{ display: 'none' }}
-        />
-        
-        {/* Canvas for displaying camera feed and analysis */}
-        <canvas 
-          ref={canvasRef} 
-          width={640}
-          height={480}
-          className="w-full aspect-video object-cover"
+    <div className="w-full mx-auto">
+      <CameraControls 
+        selectedCamera={cameraProps.selectedCamera}
+        setSelectedCamera={cameraProps.setSelectedCamera}
+        toggleCamera={cameraProps.toggleCamera}
+        error={cameraProps.error}
+        availableCameras={cameraProps.availableCameras}
+        selectedResolution={cameraProps.selectedResolution}
+      />
+
+      <div className="relative">
+        <CameraPreview
+          videoRef={videoRef}
+          facingMode={cameraProps.facingMode}
+          isAnalyzing={isAnalyzing}
+          processingStatus={processingStatus}
         />
 
-        {analysis && (
-          <div className="absolute bottom-0 left-0 right-0 p-4 backdrop-blur-md bg-black/10">
-            <div className="flex items-center justify-between text-gray-800">
-              <div className="space-y-1">
-                <h3 className="font-medium">Sleep State</h3>
-                <div className="flex items-center space-x-2">
-                  <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
-                  <p className="text-sm font-medium">{analysis.sleepState}</p>
-                </div>
-              </div>
-              <div className="text-right">
-                <p className="text-xs opacity-80">Last Updated</p>
-                <p className="text-sm font-medium">{new Date().toLocaleTimeString()}</p>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+        {/* Hidden canvas for capture */}
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 w-full h-full pointer-events-none opacity-0"
+        />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="p-4 rounded-lg backdrop-blur-sm bg-white/90 border border-white/10">
-          <h3 className="text-gray-800 font-medium mb-2">Motion Analysis</h3>
-          <div className="space-y-2">
-            {analysis?.motionData?.map((data: any, index: number) => (
-              <div key={index} className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">{data.type}</span>
-                <div className="flex items-center space-x-2">
-                  <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-brand-primary rounded-full transition-all"
-                      style={{ width: `${data.value * 100}%` }}
-                    />
-                  </div>
-                  <span className="text-xs font-mono text-gray-500">
-                    {data.value.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            ))}
+        {/* Analysis Control Panel */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 backdrop-blur-md bg-black/30">
+          <div className="flex justify-between items-center">
+            <button
+              onClick={handleAnalyze}
+              disabled={isAnalyzing}
+              className="px-4 py-2 bg-brand-primary text-white rounded-lg disabled:opacity-50"
+            >
+              {isAnalyzing ? '解析中...' : '解析する'}
+            </button>
           </div>
         </div>
+      </div>
 
-        <div className="p-4 rounded-lg backdrop-blur-sm bg-white/90 border border-white/10">
-          <h3 className="text-gray-800 font-medium mb-2">System Status</h3>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="h-2 w-2 rounded-full bg-green-400" />
-                <span className="text-sm text-gray-600">Camera Connected</span>
-              </div>
-              <span className="text-xs text-gray-500">Ready</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
-                <span className="text-sm text-gray-600">AI Analysis</span>
-              </div>
-              <span className="text-xs text-gray-500">Processing</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="h-2 w-2 rounded-full bg-brand-accent" />
-                <span className="text-sm text-gray-600">Signal Strength</span>
-              </div>
-              <div className="flex space-x-0.5">
-                {[...Array(5)].map((_, i) => (
-                  <div 
-                    key={i}
-                    className={`w-1 h-3 rounded-full ${i < 4 ? 'bg-brand-accent' : 'bg-gray-200'}`}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
+      <AnalysisPanel analysis={analysis} />
+
+      <div className="mt-8 p-6 rounded-lg backdrop-blur-sm bg-white/90 border border-white/10">
+        <h3 className="text-lg font-medium text-gray-800 mb-4">解析結果</h3>
+        <div className="space-y-6">
+          <DebugCanvas 
+            videoRef={videoRef}
+            analysis={analysis}
+            facingMode={cameraProps.facingMode}
+            capturedImage={capturedImage}
+          />
+          <DebugInfo analysis={analysis} isAnalyzing={isAnalyzing} />
         </div>
       </div>
     </div>

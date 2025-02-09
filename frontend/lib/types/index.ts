@@ -1,5 +1,12 @@
 export type SleepState = 'UNKNOWN' | 'SLEEPING' | 'STRUGGLING' | 'AWAKE'
 
+export interface CameraDeviceInfo {
+  deviceId: string
+  label: string
+  type: string
+  facing: 'user' | 'environment'
+}
+
 export interface SleepData {
   state: SleepState
   confidence: number

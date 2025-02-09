@@ -1,144 +1,76 @@
-from dataclasses import dataclass
-from enum import Enum
-from typing import Optional, Tuple, List, Dict
-import numpy as np
-from PIL import Image
+import io
+from typing import Optional, Dict, Union, List
 import time
 from loguru import logger
-import google.generativeai as genai
-import os
-from dotenv import load_dotenv
+from PIL import Image
+import json
+import numpy as np
 from fastapi import APIRouter, WebSocket
 
-load_dotenv()
-
-class SleepState(Enum):
-    UNKNOWN = "UNKNOWN"
-    SLEEPING = "SLEEPING"
-    STRUGGLING = "STRUGGLING"
-    AWAKE = "AWAKE"
-
-@dataclass
-class SleepData:
-    state: SleepState
-    confidence: float
-    position: Tuple[float, float, float]  # x, y, z
-    orientation: Tuple[float, float, float]  # roll, pitch, yaw
-    timestamp: float
-    boxes: Optional[Dict] = None
+from .types import SleepState, SleepData, Box3D, AlarmParameters
+from .alarm import AlarmController
+from .gemini_api import GeminiAPI
+from .frame_processor import FrameProcessor
 
 class GemiMo:
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY environment variable is required")
-            
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-pro-vision')
-        self.state_history: List[SleepData] = []
-        self.current_state: Optional[SleepData] = None
-        logger.info("GemiMo initialized with Gemini API")
+        self.gemini_api = GeminiAPI()
+        self.alarm_controller = AlarmController()
+        self.frame_processor = FrameProcessor()
+        logger.info(f"GemiMo initialized with model: {self.gemini_api.current_model}")
+
+    async def handle_message(self, message: Union[bytes, str]) -> Optional[Dict]:
+        if isinstance(message, bytes):
+            try:
+                frame = Image.open(io.BytesIO(message))
+                return await self.process_frame(frame)
+            except Exception as e:
+                logger.error(f"Error processing image: {e}")
+                return {"status": "error", "message": str(e)}
+        elif isinstance(message, str):
+            try:
+                data = json.loads(message)
+                if data.get("type") == "config":
+                    if data.get("reload_settings", False):
+                        self.gemini_api._load_api_key()
+                    self.gemini_api._update_model(data.get("model", self.gemini_api.DEFAULT_MODEL))
+                    return {"status": "ok", "model": self.gemini_api.current_model}
+                elif data.get("type") == "recognize":
+                    if self.current_state:
+                        return {
+                            "state": self.current_state.state.value,
+                            "alarm": {
+                                "volume": self.current_state.alarm.volume,
+                                "frequency": self.current_state.alarm.frequency
+                            }
+                        }
+                    return {"status": "error", "message": "No analysis available"}
+            except json.JSONDecodeError:
+                logger.error("Invalid JSON message")
+                return None
+        return {"status": "error", "message": "Invalid message format"}
 
     async def process_frame(self, frame: Image.Image) -> SleepData:
         try:
-            # Analyze frame with Gemini Vision API
-            boxes = await self._detect_pose(frame)
+            logger.info("Starting frame processing")
+            boxes = await self.gemini_api.detect_pose(frame)
+            
             if not boxes:
-                return self._create_unknown_state()
+                return self.frame_processor.create_unknown_state()
 
-            # Calculate sleep state based on 3D pose
-            state, confidence = self._analyze_sleep_state(boxes)
-            position = self._extract_position(boxes)
-            orientation = self._extract_orientation(boxes)
-
-            sleep_data = SleepData(
-                state=state,
-                confidence=confidence,
-                position=position,
-                orientation=orientation,
-                timestamp=time.time(),
-                boxes=boxes
+            sleep_data = self.frame_processor.analyze_frame(boxes)
+            alarm_params = self.alarm_controller.get_alarm_parameters(sleep_data)
+            
+            sleep_data.alarm = AlarmParameters(
+                volume=alarm_params["volume"],
+                frequency=alarm_params["frequency"]
             )
-
-            self.current_state = sleep_data
-            self.state_history.append(sleep_data)
-            if len(self.state_history) > 300:  # Keep last 30 seconds at 10fps
-                self.state_history.pop(0)
-
+            
             return sleep_data
 
         except Exception as e:
-            logger.error(f"Frame processing error: {e}")
-            return self._create_unknown_state()
-
-    async def _detect_pose(self, frame: Image.Image) -> Optional[Dict]:
-        try:
-            response = await self.model.generate_content([
-                frame,
-                """
-                Detect the 3D bounding boxes of bed and person.
-                Output a JSON object where each key is the object name
-                and value contains its 3D bounding box as
-                [x_center, y_center, z_center, x_size, y_size, z_size, roll, pitch, yaw].
-                Include confidence scores for each detection.
-                """
-            ])
-            return response.text
-        except Exception as e:
-            logger.error(f"Gemini API error: {e}")
-            return None
-
-    def _analyze_sleep_state(self, boxes: Dict) -> Tuple[SleepState, float]:
-        if "person" not in boxes:
-            return SleepState.UNKNOWN, 0.0
-
-        person = boxes["person"]
-        pitch = person[7]  # pitch angle from 3D box
-        confidence = person.get("confidence", 0.8)
-
-        if abs(pitch) < 20:
-            return SleepState.SLEEPING, confidence
-        elif abs(pitch) > 45:
-            return SleepState.AWAKE, confidence
-        else:
-            return SleepState.STRUGGLING, confidence * 0.8
-
-    def _extract_position(self, boxes: Dict) -> Tuple[float, float, float]:
-        if "person" not in boxes:
-            return (0.0, 0.0, 0.0)
-        return tuple(boxes["person"][:3])
-
-    def _extract_orientation(self, boxes: Dict) -> Tuple[float, float, float]:
-        if "person" not in boxes:
-            return (0.0, 0.0, 0.0)
-        return tuple(boxes["person"][6:9])
-
-    def _create_unknown_state(self) -> SleepData:
-        return SleepData(
-            state=SleepState.UNKNOWN,
-            confidence=0.0,
-            position=(0.0, 0.0, 0.0),
-            orientation=(0.0, 0.0, 0.0),
-            timestamp=time.time()
-        )
-
-    def get_alarm_parameters(self) -> Dict:
-        """Get alarm parameters based on current sleep state"""
-        if not self.current_state:
-            return {"volume": 0.0, "frequency": 400}
-
-        base_params = {
-            SleepState.SLEEPING: {"volume": 0.3, "frequency": 400},
-            SleepState.STRUGGLING: {"volume": 0.5, "frequency": 800},
-            SleepState.AWAKE: {"volume": 0.2, "frequency": 600},
-            SleepState.UNKNOWN: {"volume": 0.0, "frequency": 400}
-        }
-
-        params = base_params[self.current_state.state]
-        
-        # Adjust volume based on confidence
-        params["volume"] *= self.current_state.confidence
-        return params
+            logger.error(f"Error processing frame: {e}")
+            return self.frame_processor.create_unknown_state()
 
 router = APIRouter()
 
@@ -148,11 +80,15 @@ async def gemimo_feed(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            frame = await websocket.receive_bytes()
-            analysis = await gemimo.process_frame(frame)
-            if analysis:
-                await websocket.send_json({
-                    "analysis": analysis
-                })
+            message = await websocket.receive()
+            if "bytes" in message:
+                response = await gemimo.handle_message(message["bytes"])
+            elif "text" in message:
+                response = await gemimo.handle_message(message["text"])
+            else:
+                response = {"status": "error", "message": "Invalid message type"}
+            
+            if response:
+                await websocket.send_json(response)
     except Exception as e:
-        print(f"WebSocket error: {e}")
+        logger.error(f"WebSocket error: {e}")

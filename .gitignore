@@ -132,3 +132,6 @@ dist
 .SourceSageAssets
 
 **/__pycache__/
+frontend/*.pem
+backend/*.jpg
+backend/captures/*.jpg
