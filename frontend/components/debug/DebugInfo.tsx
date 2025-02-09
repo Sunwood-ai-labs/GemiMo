@@ -1,11 +1,14 @@
 import { AnalysisResult } from '../../lib/types/camera'
 import { getStateColor, getObjectColor } from '../../lib/utils/drawing'
+import { SleepState } from '../../lib/types'
+import { ProgressBar } from './ProgressBar'
 
 interface DebugInfoProps {
   analysis: AnalysisResult | null
+  isAnalyzing: boolean
 }
 
-export const DebugInfo = ({ analysis }: DebugInfoProps) => {
+export const DebugInfo = ({ analysis, isAnalyzing }: DebugInfoProps) => {
   const formatPosition = (pos?: [number, number, number]) => {
     if (!pos) return 'N/A';
     return `(${pos.map(v => v.toFixed(3)).join(', ')})`;
@@ -18,6 +21,13 @@ export const DebugInfo = ({ analysis }: DebugInfoProps) => {
 
   return (
     <div className="space-y-4 text-sm font-mono">
+      {/* プログレスバーを追加 */}
+      <ProgressBar
+        progress={analysis?.confidence ? analysis.confidence * 100 : 0}
+        state={analysis?.state || 'UNKNOWN'}
+        isAnalyzing={isAnalyzing}
+      />
+
       <div className="grid grid-cols-2 gap-2">
         <div>
           <span className="text-gray-500">状態:</span>

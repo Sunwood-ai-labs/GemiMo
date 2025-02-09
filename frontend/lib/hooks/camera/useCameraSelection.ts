@@ -7,7 +7,13 @@ export const useCameraSelection = () => {
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
   const [error, setError] = useState<string>('')
 
-  const determineDeviceType = (label: string, deviceId: string) => {
+  type DeviceTypeInfo = {
+    type: 'webcam' | 'mobile' | 'unknown'
+    facing: 'user' | 'environment'
+    label: string
+  }
+
+  const determineDeviceType = (label: string, deviceId: string): DeviceTypeInfo => {
     const lowerLabel = label.toLowerCase()
     
     // ラベルがない場合はデバイスIDから判断を試みる
@@ -102,6 +108,7 @@ export const useCameraSelection = () => {
           return {
             deviceId: device.deviceId,
             label: label,
+            kind: 'videoinput' as const,
             type,
             facing
           }

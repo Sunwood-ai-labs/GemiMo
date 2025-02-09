@@ -63,7 +63,9 @@ export const DebugCanvas = ({ videoRef, analysis, facingMode, capturedImage }: D
 
     // ウィンドウリサイズ時にキャンバスサイズを再計算
     const handleResize = () => {
-      if (img.complete) img.onload?.()
+      if (img.complete && typeof img.onload === 'function') {
+        img.onload.call(img, new Event('load'))
+      }
     }
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)

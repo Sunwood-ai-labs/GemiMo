@@ -1,8 +1,10 @@
+import { SleepState } from './index'
+
 export type Box3D = number[]
 
 export interface AnalysisResult {
   boxes?: Record<string, Box3D>
-  state?: string
+  state?: SleepState
   confidence?: number
   position?: [number, number, number]
   orientation?: [number, number, number]
