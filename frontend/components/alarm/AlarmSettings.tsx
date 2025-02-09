@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { SleepState } from '../../lib/types'
 import { CameraPreview } from '../debug/camera/CameraPreview'
+import { useAlarmSound } from '../../lib/hooks/useAlarmSound'
 import { useCameraDevices } from '../../lib/hooks/useCameraDevices'
 import { useSettings } from '../../lib/hooks/useSettings'
 import { CameraControls } from '../debug/camera/CameraControls'
@@ -16,6 +17,7 @@ interface AlarmSettingsProps {
 export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
   const [alarmTime, setAlarmTime] = useState('')
   const [currentTime, setCurrentTime] = useState('')
+  const [forceAlarmState, setForceAlarmState] = useState<SleepState | null>(null)
   const [selectedSound, setSelectedSound] = useState({
     SLEEPING: '/sounds/sleeping/Moonlight-Bamboo-Forest.mp3',
     STRUGGLING: '/sounds/struggling/Feline Symphony.mp3',
@@ -26,6 +28,7 @@ export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const { settings } = useSettings()
   const cameraProps = useCameraDevices()
+  const { playSound, stopSound, isPlaying, isLoaded } = useAlarmSound()
 
   useEffect(() => {
     // Update current time
@@ -48,6 +51,25 @@ export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
       cameraProps.initializeCamera(videoRef)
     }
   }, [settings, cameraProps.selectedCamera, cameraProps.facingMode, cameraProps.selectedResolution])
+
+  // アラーム音の制御
+  useEffect(() => {
+    if (forceAlarmState) {
+      playSound(forceAlarmState, { volume: 0.8, frequency: 800 })
+    } else {
+      stopSound()
+    }
+    return () => stopSound()
+  }, [forceAlarmState])
+
+  // 強制アラーム起動の処理
+  const handleForceAlarm = (state: SleepState) => {
+    if (forceAlarmState === state) {
+      setForceAlarmState(null)
+    } else {
+      setForceAlarmState(state)
+    }
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -128,6 +150,50 @@ export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
               </select>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* デバッグ用強制アラーム起動ボタン */}
+      <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
+        <h3 className="text-sm font-medium text-gray-700">デバッグ用アラーム制御</h3>
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={() => handleForceAlarm('SLEEPING')}
+            className={`px-4 py-2 rounded-lg text-white text-sm ${
+              !isLoaded && forceAlarmState === 'SLEEPING' ? 'animate-pulse' : 
+              forceAlarmState === 'SLEEPING' ? 'bg-green-600' : 'bg-green-500 hover:bg-green-600'
+            }`}
+          >
+            睡眠中アラーム
+          </button>
+          <button
+            type="button"
+            onClick={() => handleForceAlarm('STRUGGLING')}
+            className={`px-4 py-2 rounded-lg text-white text-sm ${
+              !isLoaded && forceAlarmState === 'STRUGGLING' ? 'animate-pulse' : 
+              forceAlarmState === 'STRUGGLING' ? 'bg-yellow-600' : 'bg-yellow-500 hover:bg-yellow-600'
+            }`}
+          >
+            もがき中アラーム
+          </button>
+          <button
+            type="button"
+            onClick={() => handleForceAlarm('AWAKE')}
+            className={`px-4 py-2 rounded-lg text-white text-sm ${
+              !isLoaded && forceAlarmState === 'AWAKE' ? 'animate-pulse' : 
+              forceAlarmState === 'AWAKE' ? 'bg-blue-600' : 'bg-blue-500 hover:bg-blue-600'
+            }`}
+          >
+            起床中アラーム
+          </button>
+          <button
+            type="button"
+            onClick={() => stopSound()}
+            className="col-span-3 px-4 py-2 rounded-lg text-white text-sm bg-red-500 hover:bg-red-600"
+          >
+            アラーム停止
+          </button>
         </div>
       </div>
 

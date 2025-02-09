@@ -21,7 +21,10 @@ const getSoundPath = (state: SleepState): string => {
 
 export const useAlarmSound = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const fadeIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const [currentState, setCurrentState] = useState<SleepState>('UNKNOWN')
+  const [targetVolume, setTargetVolume] = useState(0)
+  const [isLoaded, setIsLoaded] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
 
   useEffect(() => {
@@ -29,6 +32,10 @@ export const useAlarmSound = () => {
     audioRef.current = new Audio()
     return () => {
       if (audioRef.current) {
+        if (fadeIntervalRef.current) {
+          clearInterval(fadeIntervalRef.current)
+          fadeIntervalRef.current = null
+        }
         audioRef.current.pause()
         audioRef.current = null
       }
@@ -41,32 +48,82 @@ export const useAlarmSound = () => {
     const soundPath = getSoundPath(state)
     if (!soundPath) return
 
-    // 状態が変化した場合は新しい音声をロード
-    if (state !== currentState) {
-      audioRef.current.src = soundPath
-      setCurrentState(state)
+    try {
+      // 状態が変化した場合は新しい音声をロード
+      if (state !== currentState) {
+        audioRef.current.src = soundPath
+        audioRef.current.loop = true // ループ再生を有効化
+        setCurrentState(state)
+        setIsLoaded(false)
+
+        // 音声ロードイベントの設定
+        audioRef.current.oncanplaythrough = () => {
+          setIsLoaded(true)
+          startPlayback(config.volume)
+        }
+
+        // エラーハンドリング
+        audioRef.current.onerror = (e) => {
+          console.error('Audio loading error:', e)
+          setIsLoaded(false)
+          setIsPlaying(false)
+        }
+      } else if (isLoaded) {
+        // 同じ状態の場合は直接再生開始
+        startPlayback(config.volume)
+      }
+    } catch (err) {
+      console.error('Error in playSound:', err)
+    }
+  }
+
+  const startPlayback = (targetVol: number) => {
+    if (!audioRef.current) return
+
+    // 初期音量を0に設定
+    audioRef.current.volume = 0
+    setTargetVolume(Math.min(Math.max(targetVol, 0), 1))
+
+    // フェードインの開始
+    if (fadeIntervalRef.current) {
+      clearInterval(fadeIntervalRef.current)
     }
 
-    // 音量の設定
-    audioRef.current.volume = Math.min(Math.max(config.volume, 0), 1)
-
-    // 音声の再生
-    if (!isPlaying) {
-      audioRef.current.play()
-        .then(() => setIsPlaying(true))
-        .catch(err => console.error('Error playing sound:', err))
-    }
+    audioRef.current.play()
+      .then(() => {
+        setIsPlaying(true)
+        // フェードイン処理
+        fadeIntervalRef.current = setInterval(() => {
+          if (!audioRef.current) return
+          const newVolume = Math.min(audioRef.current.volume + 0.05, targetVolume)
+          audioRef.current.volume = newVolume
+          if (newVolume >= targetVolume) {
+            clearInterval(fadeIntervalRef.current!)
+            fadeIntervalRef.current = null
+          }
+        }, 100)
+      })
+      .catch(err => console.error('Error starting playback:', err))
   }
 
   const stopSound = () => {
     if (!audioRef.current) return
-    audioRef.current.pause()
-    setIsPlaying(false)
+    // フェードアウト
+    const fadeOut = setInterval(() => {
+      if (!audioRef.current || audioRef.current.volume <= 0.05) {
+        clearInterval(fadeOut)
+        audioRef.current?.pause()
+        setIsPlaying(false)
+        return
+      }
+      audioRef.current.volume -= 0.05
+    }, 100)
   }
 
   return {
     playSound,
     stopSound,
-    isPlaying
+    isPlaying,
+    isLoaded
   }
 }
