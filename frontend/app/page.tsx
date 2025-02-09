@@ -23,10 +23,11 @@ export default function Home() {
     <div className="container mx-auto px-4 py-8">
       <header className="text-center mb-12">
         <h1 className="text-4xl font-display text-gray-800 mb-4">
-          GemiMo
+        Smart Sleep Recognition
         </h1>
         <p className="text-xl font-display text-gray-600">
-        AI Sleep Guardian
+        Advanced AI-powered sleep monitoring system that watches over your peaceful rest using cutting-edge 3D recognition technology.
+        This appears to be from a product called "GemiMo" based on the header of the interface.
         </p>
       </header>
 
