@@ -1,5 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { SleepState } from '../../lib/types'
+import { CameraPreview } from '../debug/camera/CameraPreview'
+import { useCameraDevices } from '../../lib/hooks/useCameraDevices'
+import { useSettings } from '../../lib/hooks/useSettings'
+import { CameraControls } from '../debug/camera/CameraControls'
 
 interface AlarmSettingsProps {
   onSubmit: (settings: {
@@ -19,6 +23,10 @@ export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
     UNKNOWN: ''
   })
 
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const { settings } = useSettings()
+  const cameraProps = useCameraDevices()
+
   useEffect(() => {
     // Update current time
     const updateCurrentTime = () => {
@@ -34,6 +42,13 @@ export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
     return () => clearInterval(interval)
   }, [])
 
+  useEffect(() => {
+    if (settings && videoRef.current) {
+      cameraProps.setSelectedCamera(settings.cameraId)
+      cameraProps.initializeCamera(videoRef)
+    }
+  }, [settings, cameraProps.selectedCamera, cameraProps.facingMode, cameraProps.selectedResolution])
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     onSubmit({
@@ -44,6 +59,26 @@ export const AlarmSettings = ({ onSubmit, enabled }: AlarmSettingsProps) => {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 relative">
+      {/* Camera Preview */}
+      <div className="mb-4">
+        <CameraControls 
+          selectedCamera={cameraProps.selectedCamera}
+          setSelectedCamera={cameraProps.setSelectedCamera}
+          toggleCamera={cameraProps.toggleCamera}
+          error={cameraProps.error}
+          availableCameras={cameraProps.availableCameras}
+          selectedResolution={cameraProps.selectedResolution}
+        />
+      </div>
+      <div className="mb-8">
+        <CameraPreview
+          videoRef={videoRef}
+          facingMode={cameraProps.facingMode}
+          isAnalyzing={false}
+          processingStatus=""
+        />
+      </div>
+
       {/* Current time display */}
       <div className="text-center mb-8">
         <div className="text-6xl font-display text-gray-800 mb-2">
