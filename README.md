@@ -14,63 +14,57 @@
 
 ## 🎯 概要
 
-GemiMoは、Gemini AIの3D認識技術とスマートアラーム機能を組み合わせた、次世代型目覚ましアプリケーションです。ユーザーの睡眠を見守るAIアシスタントとして、最適なタイミングと方法で目覚めをサポートします。
+GemiMoは、アラーム時にユーザの状態によって鳴らす音声を変えることで快適な目覚めを実現する次世代型スマートアラームシステムです。Gemini AIの3D姿勢認識技術を活用し、ユーザーの睡眠状態をリアルタイムで把握。睡眠状態に応じて最適な音声とタイミングでアラームを制御します。
 
-https://github.com/user-attachments/assets/feff5ad4-31e4-4839-9ee9-b3cbdeb98f53
+## 🌟 特徴
+
+### 🧠 インテリジェントな睡眠認識
+- Gemini AIによるリアルタイム3D姿勢認識
+- 3つの状態（睡眠中、もがき中、起床中）を自動判別
+- 高精度な状態検出と信頼度スコアリング
+
+### 🎵 アダプティブアラーム制御
+- 状態に応じた最適な音声選択
+  - 睡眠中：穏やかな環境音「Moonlight Bamboo Forest」
+  - もがき中：エネルギッシュな「Feline Symphony」
+  - 起床時：さわやかな「Silent Whisper of the Sakura」
+- 音量と周波数の動的調整
+- スムーズなフェードイン/アウト制御
+
+### 📱 使いやすいインターフェース
+- 直感的なアラーム設定
+- リアルタイム状態モニタリング
+- カメラプレビューとデバッグ機能
 
 ## 🛠️ 技術スタック
 
 ### フロントエンド
-- **Next.js 14**: TypeScriptベースのReactフレームワーク
-- **TailwindCSS**: ユーティリティファーストCSSフレームワーク
-- **WebSocket**: リアルタイム通信用
+- **Next.js 14**: 最新のReactフレームワーク
+- **TypeScript**: 型安全な開発
+- **TailwindCSS**: モダンなUIデザイン
+- **WebSocket**: リアルタイムデータ通信
 
 ### バックエンド
-- **FastAPI**: 高性能なPythonウェブフレームワーク
-- **Gemini API**: Google提供の次世代AI API
-- **WebSocket**: ストリーミング処理用
-
-## 🔍 主要機能
-
-### 🎥 カメラ制御システム
-- マルチカメラサポート
-- 解像度設定
-- フロント/バックカメラ切り替え
-
-### 🤖 AI解析システム
-- リアルタイム姿勢認識
-- 睡眠状態判定
-- アラーム制御
-
-### ⚙️ 設定管理
-- API鍵管理
-- モデル選択
-- カメラ設定
-
-## 📂 プロジェクト構造
-
-```
-frontend/
-├── components/          # UIコンポーネント
-│   ├── alarm/          # アラーム関連
-│   ├── debug/          # デバッグ機能
-│   ├── settings/       # 設定画面
-│   └── ui/             # 共通UI
-├── lib/                # ユーティリティ
-│   ├── hooks/          # カスタムフック
-│   ├── types/          # 型定義
-│   └── utils/          # ヘルパー関数
-└── app/                # ページコンポーネント
-
-backend/
-├── core/               # コアロジック
-│   ├── gemimo.py      # メインエンジン
-│   ├── gemini_api.py  # Gemini API通信
-│   └── alarm.py       # アラーム制御
-└── app/               # APIエンドポイント
-```
+- **FastAPI**: 高性能Pythonウェブフレームワーク
+- **Gemini API**: Google提供のAIモデル
+- **WebSocket**: ストリーミング処理
+- **uvicorn**: ASGIサーバー
 
 ## 🚀 開発環境のセットアップ
+
+### 必要条件
+- Python 3.10+
+- Node.js 18+
+- Gemini API Key
+
+### バックエンド
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
 
 ### フロントエンド
 ```bash
@@ -79,25 +73,21 @@ npm install
 npm run dev
 ```
 
-### バックエンド
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python main.py
-```
-
-## 🔒 環境変数の設定
+## 🔧 環境設定
 
 `.env`ファイルをプロジェクトルートに作成:
 
-```bash
+```env
 GEMINI_API_KEY=your_api_key_here
 NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws/gemimo
 NEXT_PUBLIC_API_URL=http://localhost:8000/api
 ```
 
+## 📓 開発ドキュメント
+
+- [仕様書](./specification.md)
+- [コーディングルール](./AI_CODING_AGENT_DEVELOPMENT_RULES.md)
+
 ## 📝 ライセンス
 
-本プロジェクトはMITライセンスの下で公開されています。詳細は [LICENSE](LICENSE) をご確認ください。
+本プロジェクトはMITライセンスの下で公開されています。詳細は[LICENSE](LICENSE)をご確認ください。
