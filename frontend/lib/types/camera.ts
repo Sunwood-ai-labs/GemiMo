@@ -36,3 +36,4 @@ export const RESOLUTION_OPTIONS = [
   { label: "HD (1280x720)", width: 1280, height: 720 },
   { label: "Full HD (1920x1080)", width: 1920, height: 1080 },
 ] as const
+

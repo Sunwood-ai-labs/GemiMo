@@ -147,7 +147,7 @@ export const CameraFeed = () => {
             facingMode={cameraProps.facingMode}
             capturedImage={capturedImage}
           />
-          <DebugInfo analysis={analysis} />
+          <DebugInfo analysis={analysis} isAnalyzing={isAnalyzing} />
         </div>
       </div>
     </div>
