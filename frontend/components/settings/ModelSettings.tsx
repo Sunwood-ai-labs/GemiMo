@@ -6,30 +6,37 @@ const MODEL_OPTIONS = [
 ] as const
 
 interface ModelSettingsProps {
-  model: string
-  onModelChange: (model: string) => void
+  selectedModel: typeof MODEL_OPTIONS[number]
+  onModelChange: (model: typeof MODEL_OPTIONS[number]) => void
 }
 
-export const ModelSettings: React.FC<ModelSettingsProps> = ({ model, onModelChange }) => {
+export const ModelSettings: React.FC<ModelSettingsProps> = ({
+  selectedModel,
+  onModelChange,
+}) => {
   return (
-    <div className="space-y-2">
-      <label className="block text-sm font-medium text-gray-700">
-        Gemini Model
-      </label>
-      <select
-        value={model}
-        onChange={(e) => onModelChange(e.target.value)}
-        className="w-full px-3 py-2 border border-gray-300 rounded-md"
-      >
-        {MODEL_OPTIONS.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-      <p className="text-xs text-gray-500">
-        Select the Gemini model to use for analysis
-      </p>
+    <div className="space-y-4">
+      <h3 className="text-lg font-medium text-gray-800">モデル設定</h3>
+      
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-gray-700">
+          Geminiモデル
+        </label>
+        <select
+          value={selectedModel}
+          onChange={(e) => onModelChange(e.target.value as typeof MODEL_OPTIONS[number])}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-primary"
+        >
+          {MODEL_OPTIONS.map((model) => (
+            <option key={model} value={model}>
+              {model}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-gray-500">
+          使用するGemini AIモデルを選択してください。
+        </p>
+      </div>
     </div>
   )
 }
