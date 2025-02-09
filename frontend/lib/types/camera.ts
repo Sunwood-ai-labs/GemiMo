@@ -17,6 +17,8 @@ export interface CameraDeviceInfo {
   deviceId: string
   label: string
   kind: 'videoinput'
+  type: 'webcam' | 'mobile' | 'unknown'
+  facing: 'user' | 'environment'
 }
 
 export type FacingMode = 'user' | 'environment'

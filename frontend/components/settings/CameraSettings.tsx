@@ -26,34 +26,53 @@ export const CameraSettings: React.FC<CameraSettingsProps> = ({
       {/* カメラ選択 */}
       <div className="space-y-2">
         <label className="block text-sm font-medium text-gray-700">
-          カメラ
+          使用可能なカメラ
         </label>
         <select
           value={selectedCameraId}
           onChange={(e) => onCameraChange(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-primary"
+          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
         >
-          {availableCameras.map((camera) => (
-            <option key={camera.deviceId} value={camera.deviceId}>
-              {camera.label}
-            </option>
-          ))}
+          {availableCameras.length === 0 ? (
+            <option value="">カメラが見つかりません - カメラへのアクセスを許可してください</option>
+          ) : (
+            availableCameras.map((camera, index) => (
+              <option key={camera.deviceId} value={camera.deviceId}>
+                {camera.label || `カメラ ${index + 1}`}
+              </option>
+            ))
+          )}
         </select>
+        {availableCameras.length === 0 && (
+          <div className="mt-2">
+            <div className="text-sm text-red-500">
+              カメラが検出されません。以下を確認してください：
+            </div>
+            <ul className="mt-1 ml-4 text-sm text-red-500 list-disc">
+              <li>カメラが正しく接続されているか</li>
+              <li>ブラウザにカメラの使用許可が与えられているか</li>
+              <li>他のアプリケーションがカメラを使用していないか</li>
+            </ul>
+          </div>
+        )}
       </div>
 
-      {/* カメラの向き */}
+      {/* カメラの向きの設定 - すべてのデバイスで表示 */}
       <div className="space-y-2">
         <label className="block text-sm font-medium text-gray-700">
-          カメラの向き
+          カメラの向き設定
         </label>
         <select
           value={facingMode}
           onChange={(e) => onFacingModeChange(e.target.value as 'user' | 'environment')}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-primary"
+          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
         >
-          <option value="user">フロントカメラ</option>
-          <option value="environment">リアカメラ</option>
+          <option value="user">内向き（ユーザー側）</option>
+          <option value="environment">外向き（環境側）</option>
         </select>
+        <p className="mt-1 text-sm text-gray-500">
+          ※ デバイスによっては向きの変更に対応していない場合があります
+        </p>
       </div>
 
       {/* 解像度設定 */}
@@ -69,14 +88,17 @@ export const CameraSettings: React.FC<CameraSettingsProps> = ({
             )
             if (selected) onResolutionChange(selected)
           }}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-primary"
+          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
         >
-          {RESOLUTION_OPTIONS.map((opt) => (
-            <option key={opt.label} value={`${opt.width}x${opt.height}`}>
+          {RESOLUTION_OPTIONS.map(opt => (
+            <option key={`${opt.width}x${opt.height}`} value={`${opt.width}x${opt.height}`}>
               {opt.label}
             </option>
           ))}
         </select>
+        <p className="mt-1 text-sm text-gray-500">
+          ※ デバイスによっては対応していない解像度があります。その場合は自動的に最適な解像度が選択されます。
+        </p>
       </div>
     </div>
   )

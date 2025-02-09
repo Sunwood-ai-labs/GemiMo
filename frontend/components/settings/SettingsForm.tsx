@@ -6,67 +6,124 @@ import { ModelSettings } from './ModelSettings'
 import { RESOLUTION_OPTIONS } from '@/lib/types/camera'
 
 export const SettingsForm = () => {
-  const { settings, isSaving, error, saveSettings } = useSettings()
-  const [availableCameras, setAvailableCameras] = useState<Array<{ deviceId: string; label: string }>>([])
+  const { settings, isSaving, error: settingsError, saveSettings } = useSettings()
+  const [isInitializing, setIsInitializing] = useState(true)
+  const [availableCameras, setAvailableCameras] = useState<Array<{ deviceId: string; label: string; type: string; facing: 'user' | 'environment' }>>([])
+  const [selectedCameraId, setSelectedCameraId] = useState('')
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
+  const [resolution, setResolution] = useState(RESOLUTION_OPTIONS[1])
+  const [error, setError] = useState<string>('')
 
   useEffect(() => {
-    // カメラデバイスの一覧を取得
-    const listCameras = async () => {
+    const initializeCameras = async () => {
       try {
+        // カメラの権限を要求
+        await navigator.mediaDevices.getUserMedia({ video: true })
+          .catch(async (err) => {
+            // 環境モードで失敗した場合、userモードで再試行
+            return navigator.mediaDevices.getUserMedia({ 
+              video: { facingMode: 'user' } 
+            })
+          })
+
+        // すべてのデバイスを列挙
         const devices = await navigator.mediaDevices.enumerateDevices()
         const cameras = devices
           .filter(device => device.kind === 'videoinput')
-          .map(device => ({
-            deviceId: device.deviceId,
-            label: device.label || `Camera ${device.deviceId.slice(0, 4)}...`
-          }))
+          .map(device => {
+            const label = device.label || `カメラ ${device.deviceId.slice(0, 4)}`
+            const lowerLabel = label.toLowerCase()
+            
+            // カメラの種類と向きを判定
+            const isBackCamera = lowerLabel.includes('back') || 
+                               lowerLabel.includes('rear') || 
+                               lowerLabel.includes('環境') || 
+                               lowerLabel.includes('背面')
+            
+            const isBuiltIn = lowerLabel.includes('integrated') || 
+                            lowerLabel.includes('built-in') || 
+                            lowerLabel.includes('内蔵')
+
+            return {
+              deviceId: device.deviceId,
+              label: label,
+              type: isBuiltIn ? 'webcam' : 'unknown',
+              facing: isBackCamera ? 'environment' : 'user'
+            }
+          })
+
+        console.log('Available cameras:', cameras) // デバッグ用
         setAvailableCameras(cameras)
+
+        // カメラの選択
+        if (cameras.length > 0) {
+          const defaultCamera = cameras.find(cam => cam.facing === 'environment') || cameras[0]
+          setSelectedCameraId(defaultCamera.deviceId)
+          setFacingMode(defaultCamera.facing)
+        }
       } catch (err) {
-        console.error('Error listing cameras:', err)
+        console.error('Camera initialization error:', err)
+        setError('カメラの初期化に失敗しました')
+      } finally {
+        setIsInitializing(false)
       }
     }
 
-    listCameras()
+    initializeCameras()
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    await saveSettings(settings)
+    try {
+      await saveSettings({
+        ...settings,
+        cameraId: selectedCameraId,
+        facingMode,
+        resolution
+      })
+    } catch (err) {
+      console.error('Settings save error:', err)
+      setError('設定の保存に失敗しました')
+    }
+  }
+
+  if (isInitializing) {
+    return <div className="text-center py-4">カメラを初期化中...</div>
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
-      {error && (
-        <div className="p-4 rounded-lg bg-red-50 border border-red-200">
-          <p className="text-red-700">{error}</p>
-        </div>
-      )}
-
+      <CameraSettings
+        selectedCameraId={selectedCameraId}
+        facingMode={facingMode}
+        resolution={resolution}
+        onCameraChange={setSelectedCameraId}
+        onFacingModeChange={setFacingMode}
+        onResolutionChange={setResolution}
+        availableCameras={availableCameras}
+      />
+      
       <ApiSettings
         apiKey={settings.apiKey}
-        onApiKeyChange={(apiKey) => saveSettings({ ...settings, apiKey })}
+        onApiKeyChange={(key) => saveSettings({ ...settings, apiKey: key })}
       />
-
+      
       <ModelSettings
-        selectedModel={settings.model as any}
+        selectedModel={settings.model}
         onModelChange={(model) => saveSettings({ ...settings, model })}
       />
 
-      <CameraSettings
-        selectedCameraId={settings.cameraId}
-        facingMode={settings.facingMode}
-        resolution={settings.resolution}
-        onCameraChange={(cameraId) => saveSettings({ ...settings, cameraId })}
-        onFacingModeChange={(facingMode) => saveSettings({ ...settings, facingMode })}
-        onResolutionChange={(resolution) => saveSettings({ ...settings, resolution })}
-        availableCameras={availableCameras}
-      />
+      {(error || settingsError) && (
+        <div className="text-red-500 text-sm">
+          {error || settingsError}
+        </div>
+      )}
 
       <div className="flex justify-end">
         <button
           type="submit"
           disabled={isSaving}
-          className="px-4 py-2 text-sm font-medium text-white bg-brand-primary hover:bg-brand-primary/90 rounded-md shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
         >
           {isSaving ? '保存中...' : '設定を保存'}
         </button>
